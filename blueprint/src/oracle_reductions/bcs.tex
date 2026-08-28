@@ -1,0 +1,122 @@
+\section{The BCS Transformation}\label{sec:bcs}
+
+The BCS transformation~\cite{BCS16} turns an Interactive Oracle Reduction into an Interactive
+Reduction by replacing every oracle with a commitment and every oracle query with an opening
+argument. It captures both the original vector-commitment/Merkle-tree construction and the
+Polynomial IOP + Polynomial Commitment pattern used by Plonk and Marlin.
+
+This section is a blueprint, not a description of existing code:
+\texttt{ArkLib/OracleReduction/BCS/Basic.lean} currently contains
+\texttt{ProtocolSpec.renameMessage} and two commented-out stubs.
+
+\subsection{The transformation}\label{sec:bcs_transform}
+
+\begin{definition}[Commitment-carrying protocol specification]
+    \label{def:bcs_pspec}
+    Let $\pSpec : \ProtocolSpec\;n$ with an $\OracleInterface$ on each message. Given a family of
+    commitment schemes --- one per message index --- write $\mathsf{Com}_i$ for the commitment type
+    of message $i$ and $\pSpec^{\mathsf{open}}_i : \ProtocolSpec\;(n^{\mathsf{open}}_i)$ for the
+    opening argument attached to a query on message $i$.
+
+    The transformed specification replaces each message type by its commitment type, using
+    \texttt{ProtocolSpec.renameMessage}, and then appends the opening arguments.
+    \lean{ProtocolSpec.renameMessage}
+\end{definition}
+
+\begin{definition}[BCS transform]
+    \label{def:bcs}
+    $\mathsf{BCSTransform}$ sends an oracle reduction $R$ to the reduction that
+    \begin{enumerate}
+        \item runs $R$'s prover, sending a commitment in place of each oracle message;
+        \item runs $R$'s oracle verifier to obtain its query list;
+        \item runs an opening argument for each query;
+        \item accepts iff $R$'s verifier accepts and every opening argument accepts.
+    \end{enumerate}
+\end{definition}
+
+\subsection{The degree of freedom that decides the formalization}\label{sec:bcs_batching}
+
+The transform's free choices --- the order of the opening arguments, and whether they are batched
+--- are usually presented as optimizations. In this library one of them is not: it decides whether
+the security proof is reachable at all.
+
+\begin{remark}[Sequential openings inherit the composition blocker]
+    \label{rem:bcs_sequential_blocked}
+    The natural shape, and the one the commented-out stub sketches, composes the opening arguments
+    with $\ProtocolSpec.\mathsf{append}$, giving $n + \sum_i n^{\mathsf{open}}_i$ rounds. Its
+    security proof then routes through $\mathsf{Verifier.append\_soundness}$ and its knowledge and
+    round-by-round variants.
+
+    Those are unproved, and not for want of effort. $(R_1.\mathsf{append}\;R_2).\mathsf{run}$ runs
+    both provers and then both verifiers, whereas running $R_1$ then $R_2$ interleaves
+    $P_1, V_1, P_2, V_2$; justifying the swap of $V_1$ past $P_2$ needs the oracle computation
+    interpreted into a \emph{commutative} monad, which the VCVio refactor has not yet supplied.
+
+    So a BCS transform built on sequential openings is blocked on a dependency the transform itself
+    does not need.
+\end{remark}
+
+\begin{remark}[Homomorphic batching avoids it]
+    \label{rem:bcs_batched}
+    If the commitment scheme is homomorphic, the verifier's queries can be reduced to a single
+    opening by taking a random linear combination of the committed messages. The transformed
+    protocol is then $\pSpec$ with renamed messages, plus \emph{one} challenge round and
+    \emph{one} opening argument --- a fixed, bounded suffix rather than a sum over queries.
+
+    This is worth stating as the primary route rather than the optimization. It removes the
+    dependency on sequential-composition security described in
+    Remark~\ref{rem:bcs_sequential_blocked}, and it is available for the schemes this library
+    already has: Ajtai's commitment is linear, so the combination is immediate.
+
+    The cost is a soundness term for the batching challenge, which must be carried explicitly.
+\end{remark}
+
+\subsection{What must be proved}\label{sec:bcs_security}
+
+\begin{theorem}[Completeness]
+    \label{thm:bcs_completeness}
+    If $R$ is complete with error $\varepsilon$ and every commitment scheme is perfectly correct and
+    every opening argument complete, then $\mathsf{BCSTransform}(R)$ is complete with error
+    $\varepsilon$.
+\end{theorem}
+
+\begin{theorem}[Soundness]
+    \label{thm:bcs_soundness}
+    If $R$ is sound with error $\varepsilon$, each commitment scheme binding with advantage
+    $\delta_i$, and each opening argument sound with error $\eta_i$, then
+    $\mathsf{BCSTransform}(R)$ is sound with error $\varepsilon + \sum_i \delta_i + \sum_i \eta_i$,
+    plus the batching term of Remark~\ref{rem:bcs_batched} when that route is taken.
+\end{theorem}
+
+\begin{theorem}[Knowledge soundness]
+    \label{thm:bcs_knowledge_soundness}
+    The extractor runs $R$'s extractor against the messages recovered from the opening arguments;
+    binding is what makes those messages well defined. Round-by-round variants follow the same
+    shape, with the state function extended to record that every commitment opened so far is
+    consistent.
+\end{theorem}
+
+\subsection{Dependency graph}\label{sec:bcs_deps}
+
+\[
+\begin{array}{rcl}
+\text{Def.\ref{def:bcs_pspec}} &\to& \text{Def.\ref{def:bcs}} \\
+\text{Def.\ref{def:bcs}} + \text{commitment correctness} &\to& \text{Thm.\ref{thm:bcs_completeness}} \\
+\text{Def.\ref{def:bcs}} + \text{binding} + \text{opening soundness} &\to& \text{Thm.\ref{thm:bcs_soundness}} \\
+\text{Thm.\ref{thm:bcs_soundness}} + \text{$R$'s extractor} &\to& \text{Thm.\ref{thm:bcs_knowledge_soundness}}
+\end{array}
+\]
+
+Under Remark~\ref{rem:bcs_batched} none of these depends on
+$\mathsf{Verifier.append\_soundness}$. Under the sequential route, all three do.
+
+\subsection{Open questions for maintainers}\label{sec:bcs_questions}
+
+\begin{enumerate}
+    \item Should the batched form be the definition, with the sequential form derived, or the
+        reverse? The argument for batching-first is Remark~\ref{rem:bcs_sequential_blocked}: it is
+        the form that can be proved today.
+    \item Should $\mathsf{BCSTransform}$ require a homomorphic commitment in its signature, or take
+        the batching argument as a parameter so non-homomorphic schemes remain expressible?
+    \item Is Merkle capping in scope, or a later specialization?
+\end{enumerate}
