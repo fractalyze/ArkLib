@@ -65,19 +65,55 @@ the security proof is reachable at all.
 
     This is worth stating as the primary route rather than the optimization. It removes the
     dependency on sequential-composition security described in
-    Remark~\ref{rem:bcs_sequential_blocked}, and it is available for the schemes this library
-    already has: Ajtai's commitment is linear, so the combination is immediate.
+    Remark~\ref{rem:bcs_sequential_blocked}.
 
-    The cost is a soundness term for the batching challenge, which must be carried explicitly.
+    For Ajtai the commitment map is linear on the nose. \texttt{Ajtai.Simple.commit} is the
+    matrix--vector product $As$, so additivity and scalar-homogeneity are exactly the existing
+    lemmas \texttt{matVecMul\_add} and \texttt{matVecMul\_scalarVecMul} of
+    \texttt{ArkLib/Data/Lattices/Vectors.lean}; forming the combination needs no new algebra.
+
+    The cost is a soundness term for the batching challenge, which must be carried explicitly ---
+    and, for norm-bounded schemes, the admissibility obligation of
+    Remark~\ref{rem:bcs_shortness}.
+\end{remark}
+
+\begin{remark}[Linearity of the map is not admissibility of the opening]
+    \label{rem:bcs_shortness}
+    Linearity of $\mathsf{commit}$ is not by itself enough to batch over a lattice scheme, and the
+    gap is easy to miss. \texttt{Ajtai.Simple.\allowbreak commitmentScheme} accepts an opening
+    only when the message passes a shortness predicate --- its verification is
+    \[
+        \texttt{isShort s \&\& verify A s c opening}
+    \]
+    --- and that gate is not incidental: it is what the binding reduction to Module-SIS consumes.
+
+    \texttt{isShort} is an arbitrary $\mathsf{Message} \to \mathsf{Bool}$ parameter. Nothing in the
+    library assumes it closed under addition or under scaling by a challenge, and for any genuine
+    norm bound it is not: a random linear combination $\sum_i r_i s_i$ of short messages has norm
+    growing with the query count and the size of the challenge set. The batched message can
+    therefore fail \texttt{isShort} even when every $s_i$ passes it, and the honest prover's single
+    opening is rejected.
+
+    Batching over a norm-bounded scheme accordingly needs an explicit slack hypothesis: a second
+    predicate $\mathsf{isShort}^{\mathsf{batch}}$, weaker than \texttt{isShort} by a factor
+    determined by the query count and the challenge set, under which the combination is admissible
+    and binding still reduces to Module-SIS at the corresponding parameters. Carrying both
+    predicates is what makes the batched route stateable; collapsing them is what makes it false.
 \end{remark}
 
 \subsection{What must be proved}\label{sec:bcs_security}
 
 \begin{theorem}[Completeness]
     \label{thm:bcs_completeness}
-    If $R$ is complete with error $\varepsilon$ and every commitment scheme is perfectly correct and
-    every opening argument complete, then $\mathsf{BCSTransform}(R)$ is complete with error
+    If $R$ is complete with error $\varepsilon$, every commitment scheme is perfectly correct, and
+    every opening argument is complete, then $\mathsf{BCSTransform}(R)$ is complete with error
     $\varepsilon$.
+
+    Under the batched route this additionally requires the admissibility hypothesis of
+    Remark~\ref{rem:bcs_shortness}: the combined message must satisfy the batched predicate
+    whenever each committed message satisfies the per-message one. Without that hypothesis the
+    statement is false for norm-bounded schemes --- the honest prover's batched opening is
+    rejected --- so it belongs in the theorem rather than in a remark about parameter choice.
 \end{theorem}
 
 \begin{theorem}[Soundness]
@@ -101,7 +137,8 @@ the security proof is reachable at all.
 \[
 \begin{array}{rcl}
 \text{Def.\ref{def:bcs_pspec}} &\to& \text{Def.\ref{def:bcs}} \\
-\text{Def.\ref{def:bcs}} + \text{commitment correctness} &\to& \text{Thm.\ref{thm:bcs_completeness}} \\
+\text{Def.\ref{def:bcs}} + \text{commitment correctness}
+    + \text{Rem.\ref{rem:bcs_shortness}} &\to& \text{Thm.\ref{thm:bcs_completeness}} \\
 \text{Def.\ref{def:bcs}} + \text{binding} + \text{opening soundness} &\to& \text{Thm.\ref{thm:bcs_soundness}} \\
 \text{Thm.\ref{thm:bcs_soundness}} + \text{$R$'s extractor} &\to& \text{Thm.\ref{thm:bcs_knowledge_soundness}}
 \end{array}
@@ -119,4 +156,8 @@ $\mathsf{Verifier.append\_soundness}$. Under the sequential route, all three do.
     \item Should $\mathsf{BCSTransform}$ require a homomorphic commitment in its signature, or take
         the batching argument as a parameter so non-homomorphic schemes remain expressible?
     \item Is Merkle capping in scope, or a later specialization?
+    \item For norm-bounded schemes, should the batched predicate of
+        Remark~\ref{rem:bcs_shortness} be a field of the commitment-scheme structure, or a separate
+        hypothesis on the transform? The first keeps the transform's statement uniform; the second
+        avoids disturbing schemes for which shortness is vacuous.
 \end{enumerate}
