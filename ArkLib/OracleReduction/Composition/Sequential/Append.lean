@@ -901,6 +901,28 @@ theorem append_output_zero (hn : n = 0)
 -- protocol, precomposed with the lift, agrees with `challengeQueryImpl` for the component — a
 -- `SampleableType`-compatibility fact across the transport that is not yet proved.
 
+/-- Transport of the appended state family at a left round index, in the `Fin (m + 1)` indexing
+that a round induction uses (as opposed to the `Fin m` indexing of the field rules above). -/
+theorem prvState_castAdd (i : Fin (m + 1)) :
+    (P₁.append P₂).PrvState (Fin.cast (by omega) (Fin.castAdd n i)) = P₁.PrvState i := by
+  simp [Prover.append, Fin.append, Fin.addCases, Fin.cast, Fin.castLT, Fin.castAdd, Fin.castLE]
+  omega
+
+/-- **Base case of the round induction.** Before any round has run, the appended prover's partial
+run is `P₁`'s, transported. The appended index is written as `0` rather than as
+`Fin.cast _ (Fin.castAdd n 0)` because the two are definitionally equal and `Fin.induction_zero`
+only fires on the former; rewriting between them is blocked by a dependent motive, since the
+transcript and state types both depend on the index. -/
+theorem append_runToRound_zero (stmt : Stmt₁) (wit : Wit₁) :
+    (P₁.append P₂).runToRound 0 stmt wit
+      = (fun p => (cast (transcript_append_castAdd (pSpec₂ := pSpec₂) 0).symm p.1,
+                   cast (prvState_castAdd (P₁ := P₁) (P₂ := P₂) 0).symm p.2))
+        <$> liftM (P₁.runToRound 0 stmt wit) := by
+  simp only [Prover.runToRound, Fin.induction_zero, Prover.append_input]
+  simp only [ChallengeIdx, Challenge, liftM_pure, map_pure]
+  congr 1
+  exact Prod.ext (Subsingleton.elim _ _) rfl
+
 /--
 States that running an appended prover `P₁.append P₂` with an initial statement `stmt₁` and
 witness `wit₁` behaves as expected: it first runs `P₁` to obtain an intermediate statement
