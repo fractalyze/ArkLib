@@ -664,16 +664,97 @@ variable {P₁ : Prover oSpec Stmt₁ Wit₁ Stmt₂ Wit₂ pSpec₁}
     {P₂ : Prover oSpec Stmt₂ Wit₂ Stmt₃ Wit₃ pSpec₂}
     {stmt : Stmt₁} {wit : Wit₁}
 
--- #print Prover.processRound
+/-! ### Computation rules for `Prover.append`'s fields
 
--- theorem append_processRound (roundIdx : Fin (m + n)) (stmt : Stmt₁) (wit : Wit₁)
---     (transcript : pSpec₁.FullTranscript) (proveQueryLog : Set (Stmt₁ × Wit₁))
---     (verifyQueryLog : Set (Stmt₂ × Wit₂)) :
---       (P₁.append P₂).processRound roundIdx stmt wit transcript proveQueryLog verifyQueryLog =
---         (P₁.processRound roundIdx stmt wit transcript proveQueryLog verifyQueryLog) ∧
---         (P₂.processRound roundIdx stmt wit transcript proveQueryLog verifyQueryLog) := sorry
+`Prover.append`'s state family is `Fin.append P₁.PrvState (Fin.tail P₂.PrvState) ∘ Fin.cast _`.
+`Fin.append` branches on `i < m` via `Fin.addCases`, which does **not** reduce for a variable
+index -- `rfl` proves the state equation at a literal index and fails at a variable one. That is
+why each field of `Prover.append` is built by `by_cases`/`simp`/`dcast` rather than by
+computation, and why a proof about it cannot simply unfold.
 
--- theorem append_runToRound
+The lemmas below are the interface that replaces unfolding: they transport the state family across
+the two injections, and then compute each field at a left-injected index in one rewrite. Together
+with the challenge-oracle lemmas in `ProtocolSpec/SeqCompose.lean`
+(`liftM_getChallenge_append_inl` / `_inr`, proved by `rfl`) they are what an induction proving
+`append_run` runs on.
+
+Left region only so far; the right region's state transport is here too, but its field rules, the
+boundary round `i = m` (where `P₁.output` and `P₂.input` fire), and `output` itself are not yet
+written. -/
+
+/-- Transport of the appended state family at a left-injected round, before the round. -/
+theorem prvState_castSucc_inl (i : Fin m) :
+    (P₁.append P₂).PrvState (Fin.castAdd n i).castSucc = P₁.PrvState i.castSucc := by
+  simp [Prover.append, Fin.append, Fin.addCases, Fin.castSucc, Fin.castAdd, Fin.castLE, Fin.cast,
+    Fin.castLT]
+
+/-- Transport of the appended state family at a left-injected round, after the round. -/
+theorem prvState_succ_inl (i : Fin m) :
+    (P₁.append P₂).PrvState (Fin.castAdd n i).succ = P₁.PrvState i.succ := by
+  simp [Prover.append, Fin.append, Fin.addCases, Fin.castSucc, Fin.castAdd, Fin.castLE, Fin.cast,
+    Fin.castLT, Fin.succ]
+
+/-- Transport of the appended state family at a right-injected round, before the round.
+
+The hypothesis `j ≠ 0` excludes the boundary round `m`, whose state before the round still belongs
+to `P₁` -- that round is where `P₁.output` and `P₂.input` fire, and it is handled separately. -/
+theorem prvState_castSucc_inr (j : Fin n) (hj : (j : ℕ) ≠ 0) :
+    (P₁.append P₂).PrvState (Fin.natAdd m j).castSucc = P₂.PrvState j.castSucc := by
+  have h1 : ¬ (m + (j : ℕ) < m + 1) := by omega
+  simp [Prover.append, Fin.append, Fin.addCases, Fin.castSucc, Fin.natAdd, Fin.cast,
+    Fin.castLT, Fin.tail, Fin.succ, h1]
+  try (congr 1; apply Fin.ext; simp; omega)
+
+/-- Transport of the appended state family at a right-injected round, after the round. -/
+theorem prvState_succ_inr (j : Fin n) (hj : (j : ℕ) ≠ 0) :
+    (P₁.append P₂).PrvState (Fin.natAdd m j).succ = P₂.PrvState j.succ := by
+  have h1 : ¬ (m + (j : ℕ) + 1 < m + 1) := by omega
+  simp [Prover.append, Fin.append, Fin.addCases, Fin.castSucc, Fin.natAdd, Fin.cast,
+    Fin.castLT, Fin.tail, Fin.succ, h1]
+  try (congr 1; apply Fin.ext; simp; omega)
+
+/-- A `cast` between computations returning a pair is the pair of casts. Used to turn the transport
+that `Prover.append`'s tactic-generated fields produce into the componentwise form the statements
+below are phrased in. -/
+private theorem cast_map_prod {ι' : Type} {spec : OracleSpec ι'} {A A' B B' : Type}
+    (hA : A = A') (hB : B = B') (h : OracleComp spec (A × B) = OracleComp spec (A' × B'))
+    (x : OracleComp spec (A × B)) :
+    cast h x = (fun p => (cast hA p.1, cast hB p.2)) <$> x := by
+  subst hA; subst hB; simp
+
+/-- The arrow-valued counterpart of `cast_map_prod`, for `receiveChallenge`. -/
+private theorem cast_map_arrow {ι' : Type} {spec : OracleSpec ι'} {A A' B B' : Type}
+    (hA : A = A') (hB : B = B') (h : OracleComp spec (A → B) = OracleComp spec (A' → B'))
+    (x : OracleComp spec (A → B)) :
+    cast h x = (fun f a' => cast hB (f (cast hA.symm a'))) <$> x := by
+  subst hA; subst hB; simp
+
+/-- At a round strictly inside `pSpec₁`, the appended prover sends exactly `P₁`'s message and
+updates exactly `P₁`'s state, modulo the transports. -/
+theorem append_sendMessage_inl (i : MessageIdx pSpec₁)
+    (st : (P₁.append P₂).PrvState (Fin.castAdd n i.1).castSucc) :
+    (P₁.append P₂).sendMessage (MessageIdx.inl i) st
+      = (fun p => (cast (message_append_inl i).symm p.1,
+                   cast (prvState_succ_inl (P₁ := P₁) (P₂ := P₂) i.1).symm p.2))
+        <$> P₁.sendMessage i (cast (prvState_castSucc_inl (P₁ := P₁) (P₂ := P₂) i.1) st) := by
+  unfold Prover.append MessageIdx.inl
+  simp only [Fin.is_lt, dif_pos, Fin.castAdd, Fin.castLE, id_eq, eq_mpr_eq_cast, eq_mp_eq_cast,
+    Fin.eta]
+  exact cast_map_prod _ _ _ _
+
+/-- At a challenge round strictly inside `pSpec₁`, the appended prover receives exactly `P₁`'s
+challenge and updates exactly `P₁`'s state, modulo the transports. -/
+theorem append_receiveChallenge_inl (i : ChallengeIdx pSpec₁)
+    (st : (P₁.append P₂).PrvState (Fin.castAdd n i.1).castSucc) :
+    (P₁.append P₂).receiveChallenge (ChallengeIdx.inl i) st
+      = (fun f c => cast (prvState_succ_inl (P₁ := P₁) (P₂ := P₂) i.1).symm
+            (f (cast (challenge_append_inl (pSpec₂ := pSpec₂) i) c)))
+        <$> P₁.receiveChallenge i (cast (prvState_castSucc_inl (P₁ := P₁) (P₂ := P₂) i.1) st) := by
+  unfold Prover.append ChallengeIdx.inl
+  simp only [Fin.is_lt, dif_pos, Fin.castAdd, Fin.castLE, id_eq, eq_mpr_eq_cast, eq_mp_eq_cast,
+    Fin.eta]
+  exact cast_map_arrow (challenge_append_inl (pSpec₂ := pSpec₂) i).symm
+    (prvState_succ_inl (P₁ := P₁) (P₂ := P₂) i.1).symm _ _
 
 -- The challenge-oracle inclusions that `append_run`'s statement lifts along are provided
 -- (proved) by `ProtocolSpec.subSpec_challenge_append_left` / `..._right` in

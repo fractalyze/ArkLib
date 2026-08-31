@@ -462,6 +462,20 @@ theorem challenge_append_inl (i : ChallengeIdx pSpec₁) :
     (pSpec₁ ++ₚ pSpec₂).Challenge (ChallengeIdx.inl i) = pSpec₁.Challenge i :=
   append_Type_castAdd (pSpec₁ := pSpec₁) (pSpec₂ := pSpec₂) i.1
 
+/-- The message type of an appended protocol at a left-injected message index agrees with the
+message type of the left component. The message-side counterpart of `challenge_append_inl`, and
+likewise `append_Type_castAdd` at the underlying round index, since `MessageIdx.inl` is
+`Fin.castAdd` on rounds. -/
+theorem message_append_inl (i : MessageIdx pSpec₁) :
+    (pSpec₁ ++ₚ pSpec₂).Message (MessageIdx.inl i) = pSpec₁.Message i :=
+  append_Type_castAdd (pSpec₁ := pSpec₁) (pSpec₂ := pSpec₂) i.1
+
+/-- The message type of an appended protocol at a right-injected message index agrees with the
+message type of the right component. Dual to `message_append_inl`. -/
+theorem message_append_inr (i : MessageIdx pSpec₂) :
+    (pSpec₁ ++ₚ pSpec₂).Message (MessageIdx.inr i) = pSpec₂.Message i :=
+  append_Type_natAdd (pSpec₁ := pSpec₁) (pSpec₂ := pSpec₂) i.1
+
 /-- The challenge type of an appended protocol at a right-injected challenge index agrees with the
 challenge type of the right component. Dually to `challenge_append_inl`, this is
 `append_Type_natAdd` at the underlying round index. -/
