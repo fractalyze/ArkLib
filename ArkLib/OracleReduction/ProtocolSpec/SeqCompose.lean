@@ -251,6 +251,7 @@ def liftTranscriptR (w : ℕ) (hw : w ≤ n)
         (by omega)).symm (T₂ ⟨(i : ℕ) - m, by show (i : ℕ) - m < w; omega⟩)
 
 set_option maxHeartbeats 2000000 in
+-- The nested `split`s below produce a wide case tree, each leaf a cast chain. Raised limit.
 /-- Extending a right-region transcript and combining it commute -- the right-region counterpart of
 `liftTranscript_concat`. The proof is a case split at every level: outer index below or above the
 boundary, and `Fin.snoc` at `castSucc` or at `last`. The mixed cases are impossible and die by
@@ -288,6 +289,19 @@ theorem liftTranscriptR_concat (w : ℕ) (hw : w < n)
         | exact eq_of_heq (((cast_heq _ _).trans (cast_heq _ _)).trans
             ((cast_heq _ _).trans (cast_heq _ _)).symm)
         | exact eq_of_heq ((cast_heq _ _).trans (cast_heq _ _).symm)
+
+/-- At `w = 0` the right-region combiner is the left-region one at the boundary: no `pSpec₂` round
+has run yet, so every index is below `m` and takes `liftTranscriptR`'s left branch. This is the
+bridge the base case of a right-region round induction crosses -- it is what lets the boundary round
+hand its transcript, built by `liftTranscript`, to `liftTranscriptR`. -/
+theorem liftTranscriptR_zero (T₁ : pSpec₁.FullTranscript)
+    (T₂ : pSpec₂.Transcript ⟨0, by omega⟩) :
+    liftTranscriptR (pSpec₁ := pSpec₁) 0 (Nat.zero_le n) T₁ T₂
+      = liftTranscript (pSpec₂ := pSpec₂) m le_rfl (by omega) T₁ := by
+  funext i
+  have hi : (i : ℕ) < m := i.isLt
+  simp only [liftTranscriptR, liftTranscript, dif_pos hi]
+  rfl
 
 namespace Transcript
 
