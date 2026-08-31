@@ -678,9 +678,10 @@ with the challenge-oracle lemmas in `ProtocolSpec/SeqCompose.lean`
 (`liftM_getChallenge_append_inl` / `_inr`, proved by `rfl`) they are what an induction proving
 `append_run` runs on.
 
-Left region only so far; the right region's state transport is here too, but its field rules, the
-boundary round `i = m` (where `P₁.output` and `P₂.input` fire), and `output` itself are not yet
-written. -/
+Every field is now covered, in all three regions -- before the boundary, at it, and after it --
+plus both cases of `output`. So `Prover.append` is fully characterized: any proof about it can
+proceed by rewriting rather than by unfolding. What remains for `append_run` is the round induction
+itself, over `Prover.runToRound`, together with the transcript bookkeeping. -/
 
 /-- Transport of the appended state family at a left-injected round, before the round. -/
 theorem prvState_castSucc_inl (i : Fin m) :
@@ -755,6 +756,126 @@ theorem append_receiveChallenge_inl (i : ChallengeIdx pSpec₁)
     Fin.eta]
   exact cast_map_arrow (challenge_append_inl (pSpec₂ := pSpec₂) i).symm
     (prvState_succ_inl (P₁ := P₁) (P₂ := P₂) i.1).symm _ _
+
+/-! The right region and the boundary are stated on the **raw** appended index rather than on a
+right-injected one. That is deliberate: `Prover.append` produces the `pSpec₂` index as `i - m`, and
+`i - m` does not rewrite to `j` under the dependent proofs carried by `Fin.mk`, so phrasing these on
+`MessageIdx.inr j` leaves a normalization step that no `simp` set discharges. Taking `i` as the
+parameter makes the two sides agree syntactically. -/
+
+/-- At a round strictly after the boundary, the appended prover sends exactly `P₂`'s message. -/
+theorem append_sendMessage_gt (i : MessageIdx (pSpec₁ ++ₚ pSpec₂))
+    (hi : ¬ ((i.1 : ℕ) < m)) (hi' : (i.1 : ℕ) ≠ m)
+    (hd : pSpec₂.dir ⟨(i.1 : ℕ) - m, by omega⟩ = .P_to_V)
+    (st : (P₁.append P₂).PrvState i.1.castSucc)
+    (hS : (P₁.append P₂).PrvState i.1.castSucc
+            = P₂.PrvState (⟨(i.1 : ℕ) - m, by omega⟩ : Fin n).castSucc)
+    (hM : pSpec₂.Message ⟨⟨(i.1 : ℕ) - m, by omega⟩, hd⟩
+            = (pSpec₁ ++ₚ pSpec₂).Message i)
+    (hP : P₂.PrvState (⟨(i.1 : ℕ) - m, by omega⟩ : Fin n).succ
+            = (P₁.append P₂).PrvState i.1.succ) :
+    (P₁.append P₂).sendMessage i st
+      = (fun p => (cast hM p.1, cast hP p.2))
+        <$> P₂.sendMessage ⟨⟨(i.1 : ℕ) - m, by omega⟩, hd⟩ (cast hS st) := by
+  obtain ⟨i, hDir⟩ := i
+  unfold Prover.append
+  simp only [hi, hi', dif_neg, dite_false, id_eq, eq_mpr_eq_cast, eq_mp_eq_cast, Fin.eta]
+  refine (cast_map_prod hM hP _ _).trans ?_
+  congr 1
+  all_goals (congr 1; simp only [dcast_eq_root_cast, cast_cast]; rfl)
+
+/-- At a challenge round strictly after the boundary, the appended prover receives exactly `P₂`'s
+challenge. -/
+theorem append_receiveChallenge_gt (i : ChallengeIdx (pSpec₁ ++ₚ pSpec₂))
+    (hi : ¬ ((i.1 : ℕ) < m)) (hi' : (i.1 : ℕ) ≠ m)
+    (hd : pSpec₂.dir ⟨(i.1 : ℕ) - m, by omega⟩ = .V_to_P)
+    (st : (P₁.append P₂).PrvState i.1.castSucc)
+    (hS : (P₁.append P₂).PrvState i.1.castSucc
+            = P₂.PrvState (⟨(i.1 : ℕ) - m, by omega⟩ : Fin n).castSucc)
+    (hC : (pSpec₁ ++ₚ pSpec₂).Challenge i
+            = pSpec₂.Challenge ⟨⟨(i.1 : ℕ) - m, by omega⟩, hd⟩)
+    (hP : P₂.PrvState (⟨(i.1 : ℕ) - m, by omega⟩ : Fin n).succ
+            = (P₁.append P₂).PrvState i.1.succ) :
+    (P₁.append P₂).receiveChallenge i st
+      = (fun f c => cast hP (f (cast hC c)))
+        <$> P₂.receiveChallenge ⟨⟨(i.1 : ℕ) - m, by omega⟩, hd⟩ (cast hS st) := by
+  obtain ⟨i, hDir⟩ := i
+  unfold Prover.append
+  simp only [hi, hi', dif_neg, dite_false, id_eq, eq_mpr_eq_cast, eq_mp_eq_cast, Fin.eta]
+  refine (cast_map_arrow hC.symm hP _ _).trans ?_
+  congr 1
+  all_goals (congr 1; simp only [dcast_eq_root_cast, cast_cast]; rfl)
+
+/-- **The boundary round.** At round `m` the appended prover finishes `P₁` -- running `P₁.output`
+and feeding the result through `P₂.input` -- and then takes `P₂`'s first round. This is the round
+that makes `append_run` true rather than merely plausible: `P₁.output` fires exactly here, at the
+same point in the sequence as it does on the right-hand side of that statement. -/
+theorem append_sendMessage_boundary (hn : 0 < n) (i : MessageIdx (pSpec₁ ++ₚ pSpec₂))
+    (hi : ¬ ((i.1 : ℕ) < m)) (hi' : (i.1 : ℕ) = m)
+    (hd : pSpec₂.dir ⟨0, hn⟩ = .P_to_V)
+    (st : (P₁.append P₂).PrvState i.1.castSucc)
+    (hS : (P₁.append P₂).PrvState i.1.castSucc = P₁.PrvState (Fin.last m))
+    (hM : pSpec₂.Message ⟨⟨0, hn⟩, hd⟩ = (pSpec₁ ++ₚ pSpec₂).Message i)
+    (hP : P₂.PrvState (⟨0, hn⟩ : Fin n).succ = (P₁.append P₂).PrvState i.1.succ) :
+    (P₁.append P₂).sendMessage i st
+      = (fun p => (cast hM p.1, cast hP p.2)) <$>
+          (do let ctx ← P₁.output (cast hS st)
+              P₂.sendMessage ⟨⟨0, hn⟩, hd⟩ (P₂.input ctx)) := by
+  obtain ⟨i, hDir⟩ := i
+  have hb : (i : ℕ) = m := hi'
+  unfold Prover.append
+  simp only [hi, dif_neg, dite_false, dif_pos hb, id_eq, eq_mpr_eq_cast, eq_mp_eq_cast, Fin.eta]
+  refine (cast_map_prod hM hP _ _).trans ?_
+  congr 1
+  all_goals (congr 1; simp only [dcast_eq_root_cast, cast_cast]; rfl)
+
+/-- The boundary round, when it is a challenge round. Dual to `append_sendMessage_boundary`;
+`P₁.output` and `P₂.input` fire here too, so exactly one of the two boundary lemmas applies. -/
+theorem append_receiveChallenge_boundary (hn : 0 < n) (i : ChallengeIdx (pSpec₁ ++ₚ pSpec₂))
+    (hi : ¬ ((i.1 : ℕ) < m)) (hi' : (i.1 : ℕ) = m)
+    (hd : pSpec₂.dir ⟨0, hn⟩ = .V_to_P)
+    (st : (P₁.append P₂).PrvState i.1.castSucc)
+    (hS : (P₁.append P₂).PrvState i.1.castSucc = P₁.PrvState (Fin.last m))
+    (hC : (pSpec₁ ++ₚ pSpec₂).Challenge i = pSpec₂.Challenge ⟨⟨0, hn⟩, hd⟩)
+    (hP : P₂.PrvState (⟨0, hn⟩ : Fin n).succ = (P₁.append P₂).PrvState i.1.succ) :
+    (P₁.append P₂).receiveChallenge i st
+      = (fun f c => cast hP (f (cast hC c))) <$>
+          (do let ctx ← P₁.output (cast hS st)
+              P₂.receiveChallenge ⟨⟨0, hn⟩, hd⟩ (P₂.input ctx)) := by
+  obtain ⟨i, hDir⟩ := i
+  have hb : (i : ℕ) = m := hi'
+  unfold Prover.append
+  simp only [hi, dif_neg, dite_false, dif_pos hb, id_eq, eq_mpr_eq_cast, eq_mp_eq_cast, Fin.eta]
+  refine (cast_map_arrow hC.symm hP _ _).trans ?_
+  congr 1
+  all_goals (congr 1; simp only [dcast_eq_root_cast, cast_cast]; rfl)
+
+/-- When `pSpec₂` is non-empty, the appended prover's output is `P₂`'s: `P₁.output` already fired at
+the boundary round. -/
+theorem append_output_pos (hn : ¬ (n = 0))
+    (st : (P₁.append P₂).PrvState (Fin.last (m + n)))
+    (hS : (P₁.append P₂).PrvState (Fin.last (m + n)) = P₂.PrvState (Fin.last n)) :
+    (P₁.append P₂).output st = P₂.output (cast hS st) := by
+  unfold Prover.append
+  simp only [hn, dif_neg, dite_false, id_eq, eq_mpr_eq_cast, eq_mp_eq_cast, Fin.eta]
+  congr 1
+  simp only [dcast_eq_root_cast, cast_cast]
+  rfl
+
+/-- When `pSpec₂` is empty there is no boundary round, so `output` is where `P₁.output`, `P₂.input`
+and `P₂.output` all fire. Together with `append_output_pos` this is why `P₁.output` runs exactly
+once regardless of `n`. -/
+theorem append_output_zero (hn : n = 0)
+    (st : (P₁.append P₂).PrvState (Fin.last (m + n)))
+    (hS : (P₁.append P₂).PrvState (Fin.last (m + n)) = P₁.PrvState (Fin.last m))
+    (hZ : P₂.PrvState 0 = P₂.PrvState (Fin.last n)) :
+    (P₁.append P₂).output st
+      = (do let ctx ← P₁.output (cast hS st)
+            P₂.output (cast hZ (P₂.input ctx))) := by
+  unfold Prover.append
+  simp only [hn, dif_pos, dite_true, id_eq, eq_mpr_eq_cast, eq_mp_eq_cast, Fin.eta]
+  congr 1
+  all_goals (congr 1; simp only [dcast_eq_root_cast, cast_cast]; rfl)
 
 -- The challenge-oracle inclusions that `append_run`'s statement lifts along are provided
 -- (proved) by `ProtocolSpec.subSpec_challenge_append_left` / `..._right` in
