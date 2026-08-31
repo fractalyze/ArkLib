@@ -508,12 +508,15 @@ theorem knowledgeSoundnessWith_of_transition_failure_prob_le
   rw [oracleVerifier_toVerifier_eq_verifier (k := k)]
   unfold Verifier.knowledgeSoundnessWith
   rintro ⟨stmt, oStmt⟩ witIn prover
-  refine ProtocolSpec.probEvent_optionT_simulateQ_addLift_getChallenge_bind_some_le
+  -- The prover's round-0 queries now run *before* the challenge is drawn (see
+  -- `Prover.processRound`), so the game has the prefix-extended shape rather than the
+  -- challenge-first one: the prefix is the prover's `receiveChallenge`.
+  refine ProtocolSpec.probEvent_optionT_simulateQ_addLift_prefix_getChallenge_bind_init_le
     init impl _ ⟨0, rfl⟩
-    (fun γ ↦ (liftComp (prover.receiveChallenge ⟨0, rfl⟩
-        (prover.input ((stmt, oStmt), witIn))) ([]ₒ + [(pSpec (F := F)).Challenge]ₒ))
-      >>= fun fc ↦ prover.output (fc γ))
-    (fun (γ : F) t ↦ ((stmt, oStmt),
+    (liftComp (prover.receiveChallenge ⟨0, rfl⟩
+      (prover.input ((stmt, oStmt), witIn))) ([]ₒ + [(pSpec (F := F)).Challenge]ₒ))
+    (fun fc γ ↦ prover.output (fc γ))
+    (fun _ (γ : F) t ↦ some ((stmt, oStmt),
       some (transition (stmt, oStmt) γ t.2),
       ((stmt.1, stmt.2.1 + γ * stmt.2.2),
         (fun _ j ↦ oStmt 0 j + γ • oStmt 1 j :
@@ -541,10 +544,12 @@ theorem knowledgeSoundnessWith_of_transition_failure_prob_le
     rw [Prover.run_of_verifier_first]
     simp only [map_eq_bind_pure_comp, bind_assoc, pure_bind]
     rfl
-  · refine le_trans ?_ (hgamma (stmt, oStmt))
+  · intro _
+    refine le_trans ?_ (hgamma (stmt, oStmt))
     refine probEvent_mono ?_
-    rintro γ - ⟨t, hbad, hrel⟩
-    exact ⟨t.2, hbad _ rfl, hrel⟩
+    rintro γ - ⟨t, b, hb, hrel⟩
+    obtain rfl := Option.some_inj.mp hb
+    exact ⟨t.2, hrel.1 _ rfl, hrel.2⟩
 
 omit [DecidableEq ι] in
 /-- Legacy alphabet-generic straightline knowledge-soundness existence
@@ -580,12 +585,15 @@ theorem verifier_knowledgeSoundness
   refine ⟨fun stmtIn _ _ _ _ ↦
     pure (Spec.chooseRelaxedWitness k ((encode : (Fin k → F) → (ι → A))) δ stmtIn), ?_⟩
   rintro ⟨stmt, oStmt⟩ witIn prover
-  refine ProtocolSpec.probEvent_optionT_simulateQ_addLift_getChallenge_bind_some_le
+  -- The prover's round-0 queries now run *before* the challenge is drawn (see
+  -- `Prover.processRound`), so the game has the prefix-extended shape rather than the
+  -- challenge-first one: the prefix is the prover's `receiveChallenge`.
+  refine ProtocolSpec.probEvent_optionT_simulateQ_addLift_prefix_getChallenge_bind_init_le
     init impl _ ⟨0, rfl⟩
-    (fun γ ↦ (liftComp (prover.receiveChallenge ⟨0, rfl⟩
-        (prover.input ((stmt, oStmt), witIn))) ([]ₒ + [(pSpec (F := F)).Challenge]ₒ))
-      >>= fun fc ↦ prover.output (fc γ))
-    (fun (γ : F) t ↦ ((stmt, oStmt),
+    (liftComp (prover.receiveChallenge ⟨0, rfl⟩
+      (prover.input ((stmt, oStmt), witIn))) ([]ₒ + [(pSpec (F := F)).Challenge]ₒ))
+    (fun fc γ ↦ prover.output (fc γ))
+    (fun _ (γ : F) t ↦ some ((stmt, oStmt),
       some (Spec.chooseRelaxedWitness k ((encode : (Fin k → F) → (ι → A))) δ (stmt, oStmt)),
       ((stmt.1, stmt.2.1 + γ * stmt.2.2),
         (fun _ j ↦ oStmt 0 j + γ • oStmt 1 j : ∀ i, OutputOracleStatement ι A i)),
@@ -616,11 +624,13 @@ theorem verifier_knowledgeSoundness
     rfl
   · -- The challenge-only bound: weaken the game event to the γ-round event and
     -- apply `gamma_game_bound`.
+    intro _
     refine le_trans ?_
       (gamma_game_bound k C δ encode hinj hC hδ_pos hδ_lt_min (stmt, oStmt))
     refine probEvent_mono ?_
-    rintro c - ⟨t, h1, h2⟩
-    exact ⟨h1 _ rfl, t.2, h2⟩
+    rintro c - ⟨t, b, hb, h2⟩
+    obtain rfl := Option.some_inj.mp hb
+    exact ⟨h2.1 _ rfl, t.2, h2.2⟩
 
 end Protocol
 

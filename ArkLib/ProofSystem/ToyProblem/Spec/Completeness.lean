@@ -177,14 +177,15 @@ theorem oracleReduction_perfectCompleteness
   -- Resolve `r0` to the pure base value (kept symbolic to avoid spelling `default`).
   have hr0 := OracleComp.eq_of_mem_support_pure _ hr0
   subst hr0
-  -- round 0: peel the challenge `γ₀`, then resolve `r1`.
-  obtain ⟨γ₀, hγ₀, hr1⟩ := OracleComp.mem_support_bind_peel _ _ hr1
-  -- round 2: peel the challenge `xs₂`, then resolve `r3`.
-  obtain ⟨xs₂, hxs₂, hr3⟩ := OracleComp.mem_support_bind_peel _ _ hr3
-  -- Resolve `r1`, `r2`, `r3` from their `map`-of-`liftM (pure …)` supports.
-  obtain ⟨f1, hf1, hr1⟩ := OracleComp.mem_support_map_peel _ _ hr1
+  -- Rounds 0 and 2 are challenge rounds, and `Prover.processRound` runs the prover's
+  -- `receiveChallenge` *before* drawing the challenge (see its docstring), so each peels as
+  -- `receiveChallenge` bind first, then the challenge as the outer `map`.
+  obtain ⟨f1, hf1, hr1⟩ := OracleComp.mem_support_bind_peel _ _ hr1
+  obtain ⟨γ₀, hγ₀, hr1⟩ := OracleComp.mem_support_map_peel _ _ hr1
+  obtain ⟨f3, hf3, hr3⟩ := OracleComp.mem_support_bind_peel _ _ hr3
+  obtain ⟨xs₂, hxs₂, hr3⟩ := OracleComp.mem_support_map_peel _ _ hr3
+  -- Round 1 is a message round: a single `map` over `sendMessage`.
   obtain ⟨f2, hf2, hr2⟩ := OracleComp.mem_support_map_peel _ _ hr2
-  obtain ⟨f3, hf3, hr3⟩ := OracleComp.mem_support_map_peel _ _ hr3
   have hf1 := OracleComp.eq_of_mem_support_pure _ hf1
   have hf2 := OracleComp.eq_of_mem_support_pure _ hf2
   have hf3 := OracleComp.eq_of_mem_support_pure _ hf3
@@ -357,12 +358,14 @@ theorem oracleReduction_perfectCompleteness {k : ℕ}
   obtain ⟨r0, hr0, hr1⟩ := OracleComp.mem_support_bind_peel _ _ hr1
   have hr0_eq := OracleComp.eq_of_mem_support_pure _ hr0
   subst r0
-  obtain ⟨γ, -, hr1⟩ := OracleComp.mem_support_bind_peel _ _ hr1
+  -- `Prover.processRound` runs `receiveChallenge` before drawing the challenge, so peel the
+  -- state update first and the challenge second.
   obtain ⟨f1, hf1, hr1⟩ := OracleComp.mem_support_bind_peel _ _ hr1
   change f1 ∈ support (pure (fun γ => (γ, (default, id (stmtIn, witIn)).2)) :
     OracleComp ([]ₒ + [(pSpec (F := F)).Challenge]ₒ) _) at hf1
   have hf1_eq := OracleComp.eq_of_mem_support_pure _ hf1
   subst f1
+  obtain ⟨γ, -, hr1⟩ := OracleComp.mem_support_bind_peel _ _ hr1
   have hr1_eq := OracleComp.eq_of_mem_support_pure _ hr1
   subst r1
   rw [oracleVerifier_toVerifier_run_eq_pure] at hx

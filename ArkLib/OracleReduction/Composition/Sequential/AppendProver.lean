@@ -662,20 +662,18 @@ theorem append_processRound_lt (v : ℕ) (hv : v < m) (hvn : v < m + n)
   · rename_i hDirA
     split
     · rename_i hDirB
-      simp only [liftM_bind, map_bind, bind_assoc, liftM_pure, map_pure, bind_pure_comp,
-        liftM_liftM_getChallenge_inl, Function.comp]
-      rw [map_bind_left]
-      refine bind_congr fun ch => ?_
       rw [Prover.append_receiveChallenge_lt (hi := hv) (hd := hDirB)
         (hS := Prover.prvState_lt' v hv.le hvn.le)
         (hC := ProtocolSpec.type_append_lt v hv hvn)
         (hP := (Prover.prvState_lt' (v + 1) (by omega) (by omega)).symm)]
-      simp only [liftM_map, liftM_liftM_base, cast_cast, cast_eq, Functor.map_map]
+      simp only [liftM_map, liftM_bind, map_bind, bind_assoc, liftM_liftM_base,
+        liftM_liftM_getChallenge_inl, bind_map_left, bind_pure_comp, cast_cast, cast_eq,
+        Functor.map_map, Function.comp]
+      refine bind_congr fun a => ?_
       congr 1
-      funext f
-      congr 1
+      funext ch
       rw [liftTranscript_concat (pSpec₂ := pSpec₂) v hv hvn]
-      congr 1
+      congr 2
       exact (eq_of_heq ((cast_heq _ _).trans (cast_heq _ ch))).symm
     · rename_i hDirB
       exact Direction.noConfusion ((hdir.symm.trans hDirA).symm.trans hDirB)
@@ -741,5 +739,65 @@ theorem append_run (stmt : Stmt₁) (wit : Wit₁) :
 -- TODO: Need to define a function that "extracts" a second prover from the combined prover
 
 end Prover
+
+/-! ### Regression test: the appended prover's first effect
+
+`Prover.append_run` is true only because `Prover.processRound` runs a round's `receiveChallenge`
+*before* drawing that round's challenge. At the boundary round `m` the appended prover has to run
+`P₁.output` inside `P₂`'s first `receiveChallenge`/`sendMessage` -- there is no other hook, and for
+`m = 0` there is not even a preceding round to use -- so with the challenge drawn first the appended
+prover would query the challenge oracle *before* `P₁.output`, while running `P₁` and then `P₂` runs
+`P₁.output` first. `OracleComp` is a free monad (`PFunctor.FreeM`), so those are different terms,
+and `append_run` would be false rather than merely hard.
+
+The instance below witnesses that: `pSpec₁` is empty, `pSpec₂`'s single round is a challenge round,
+and `P₁.output` makes one `oSpec` query. `headIsBase` reports which side of `oSpec + [Challenge]ₒ`
+the computation's first query lands on. It must be `oSpec` -- swap the two binds in
+`Prover.processRound` and this flips, taking `append_run` with it. -/
+section OrderRegression
+
+/-- The oracle index of a computation's first query, or `none` if it makes none. -/
+private def headIdx {ι' : Type} {spec : OracleSpec ι'} {α : Type}
+    (x : OracleComp spec α) : Option ι' :=
+  match x with
+  | .pure _ => none
+  | .liftBind t _ => some t
+
+/-- Whether a computation's first query goes to the base spec (`true`) or the challenge oracle
+(`false`); `none` if it makes no query. -/
+private def headIsBase {ι₁ ι₂ : Type} {spec₁ : OracleSpec ι₁} {spec₂ : OracleSpec ι₂} {α : Type}
+    (x : OracleComp (spec₁ + spec₂) α) : Option Bool :=
+  (headIdx x).map Sum.isLeft
+
+private abbrev tOSpec : OracleSpec Unit := fun _ => Bool
+
+private abbrev tPSpec₁ : ProtocolSpec 0 := ProtocolSpec.empty
+
+private abbrev tPSpec₂ : ProtocolSpec 1 := ⟨fun _ => .V_to_P, fun _ => Bool⟩
+
+/-- A left prover whose `output` queries an oracle -- the only thing the counterexample needs. -/
+private def tP₁ : Prover tOSpec Unit Unit Unit Unit tPSpec₁ where
+  PrvState := fun _ => Unit
+  input := fun _ => ()
+  sendMessage := fun i _ => absurd i.1.isLt (by omega)
+  receiveChallenge := fun i _ => absurd i.1.isLt (by omega)
+  output := fun _ => do
+    let _ ← (OracleSpec.query (spec := tOSpec) () : OracleComp tOSpec Bool)
+    return ((), ())
+
+/-- A trivial right prover whose single round is a challenge round. -/
+private def tP₂ : Prover tOSpec Unit Unit Unit Unit tPSpec₂ where
+  PrvState := fun _ => Unit
+  input := fun _ => ()
+  sendMessage := fun i _ => absurd i.2 (by simp)
+  receiveChallenge := fun _ _ => pure (fun _ => ())
+  output := fun _ => pure ((), ())
+
+/-- The appended prover's first query is `P₁.output`'s, not the boundary challenge -- which is what
+running `P₁` and then `P₂` does, and what `Prover.append_run` asserts. -/
+theorem headIsBase_append_run_eq_base :
+    headIsBase (Prover.run () () (tP₁.append tP₂)) = some true := rfl
+
+end OrderRegression
 
 end Execution

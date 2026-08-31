@@ -194,6 +194,12 @@ theorem probEvent_stateFunction_runToRound_le
         (p := fun x => stF.toFun m.castSucc stmtIn x.1.1)
         (ε := (rbrSoundnessError ⟨m, hDir⟩ : ENNReal)) ?_) ?_
       · rintro ⟨⟨tr, st⟩, s'⟩ - hp
+        -- The prover's own queries for this round run *before* the challenge is drawn (see
+        -- `Prover.processRound`), so peel them off first. They do not touch the transcript, and
+        -- the round bound below is uniform in their outcome, so nothing is lost.
+        rw [simulateQ_bind, StateT.run_bind]
+        refine probEvent_bind_le_of_forall_le ?_
+        rintro ⟨update, s''⟩ -
         rw [simulateQ_bind, simulateQ_addLift_challengeQueryImpl_liftM_getChallenge,
           StateT.run_bind]
         simp only [StateT.run_monadLift, monadLift_self, bind_assoc, pure_bind]
@@ -201,8 +207,9 @@ theorem probEvent_stateFunction_runToRound_le
           (p := fun c => ¬ stF.toFun m.castSucc stmtIn tr ∧
             stF.toFun m.succ stmtIn (tr.concat c)) ?_) (hRbr ⟨m, hDir⟩ tr)
         intro c _ hpc
-        simp only [bind_pure_comp, simulateQ_map, StateT.run_map, probEvent_map]
-        refine probEvent_eq_zero fun z _ hq => ?_
+        simp only [simulateQ_pure, StateT.run_pure]
+        refine probEvent_eq_zero fun z hz hq => ?_
+        obtain rfl : z = ((Transcript.concat c tr, update c), s'') := by simpa using hz
         exact hpc ⟨hp, hq⟩
       · rw [ENNReal.coe_add, add_comm ((rbrSoundnessError ⟨m, hDir⟩ : ℝ≥0) : ENNReal)]
         exact add_le_add ih le_rfl
