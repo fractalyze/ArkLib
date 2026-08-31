@@ -250,6 +250,45 @@ def liftTranscriptR (w : ℕ) (hw : w ≤ n)
       else cast (type_append_ge (pSpec₁ := pSpec₁) (pSpec₂ := pSpec₂) (i : ℕ) (by omega)
         (by omega)).symm (T₂ ⟨(i : ℕ) - m, by show (i : ℕ) - m < w; omega⟩)
 
+set_option maxHeartbeats 2000000 in
+/-- Extending a right-region transcript and combining it commute -- the right-region counterpart of
+`liftTranscript_concat`. The proof is a case split at every level: outer index below or above the
+boundary, and `Fin.snoc` at `castSucc` or at `last`. The mixed cases are impossible and die by
+`omega`, but only once `Fin.val_castLT` has normalised the index so the contradiction is visible. -/
+theorem liftTranscriptR_concat (w : ℕ) (hw : w < n)
+    (T₁ : pSpec₁.FullTranscript) (T₂ : pSpec₂.Transcript ⟨w, by omega⟩)
+    (msg : pSpec₂.Type ⟨w, hw⟩) :
+    liftTranscriptR (pSpec₁ := pSpec₁) (w + 1) (by omega) T₁ (Transcript.concat msg T₂)
+      = Transcript.concat
+          (cast (type_append_add (pSpec₁ := pSpec₁) w hw (by omega)).symm msg)
+          (liftTranscriptR (pSpec₁ := pSpec₁) w (by omega) T₁ T₂) := by
+  funext i
+  refine Fin.lastCases ?_ ?_ i
+  · simp only [liftTranscriptR, Transcript.concat, Fin.val_last, Nat.add_eq, Fin.snoc]
+    split
+    · omega
+    · split
+      · omega
+      · split
+        · omega
+        · exact eq_of_heq (((cast_heq _ _).trans (cast_heq _ _)).trans
+            ((cast_heq _ _).trans (cast_heq _ _)).symm)
+  · intro i'
+    have hi' : (i' : ℕ) < m + w := i'.isLt
+    simp only [liftTranscriptR, Transcript.concat, Fin.coe_castSucc, Nat.add_eq, Fin.snoc,
+      Fin.val_castLT, Fin.val_castSucc]
+    split <;> (try split) <;> (try split) <;>
+      first
+        | omega
+        | (simp only [cast_cast]; rfl)
+        | exact eq_of_heq ((cast_heq _ _).trans
+            ((cast_heq _ _).trans (cast_heq _ _)).symm)
+        | exact eq_of_heq (((cast_heq _ _).trans (cast_heq _ _)).trans
+            (cast_heq _ _).symm)
+        | exact eq_of_heq (((cast_heq _ _).trans (cast_heq _ _)).trans
+            ((cast_heq _ _).trans (cast_heq _ _)).symm)
+        | exact eq_of_heq ((cast_heq _ _).trans (cast_heq _ _).symm)
+
 namespace Transcript
 
 variable {k : Fin (m + n + 1)}
