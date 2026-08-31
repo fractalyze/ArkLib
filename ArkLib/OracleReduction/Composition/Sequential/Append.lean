@@ -768,6 +768,47 @@ theorem append_receiveChallenge_inl (i : ChallengeIdx pSpec₁)
   exact cast_map_arrow (challenge_append_inl (pSpec₂ := pSpec₂) i).symm
     (prvState_succ_inl (P₁ := P₁) (P₂ := P₂) i.1).symm _ _
 
+/-- `append_sendMessage_inl` on the **raw** appended index. The `MessageIdx.inl` form above cannot
+be `rw`-applied inside a round induction, whose goals carry `⟨v, _⟩` rather than
+`MessageIdx.inl ⟨v, _⟩`: the two are definitionally equal but not syntactically, so unification
+fails. Same reason the right-region rules below take the raw index. -/
+theorem append_sendMessage_lt (i : MessageIdx (pSpec₁ ++ₚ pSpec₂))
+    (hi : (i.1 : ℕ) < m) (hd : pSpec₁.dir ⟨(i.1 : ℕ), hi⟩ = .P_to_V)
+    (st : (P₁.append P₂).PrvState i.1.castSucc)
+    (hS : (P₁.append P₂).PrvState i.1.castSucc
+            = P₁.PrvState (⟨(i.1 : ℕ), hi⟩ : Fin m).castSucc)
+    (hM : pSpec₁.Message ⟨⟨(i.1 : ℕ), hi⟩, hd⟩ = (pSpec₁ ++ₚ pSpec₂).Message i)
+    (hP : P₁.PrvState (⟨(i.1 : ℕ), hi⟩ : Fin m).succ
+            = (P₁.append P₂).PrvState i.1.succ) :
+    (P₁.append P₂).sendMessage i st
+      = (fun p => (cast hM p.1, cast hP p.2))
+        <$> P₁.sendMessage ⟨⟨(i.1 : ℕ), hi⟩, hd⟩ (cast hS st) := by
+  obtain ⟨i, hDir⟩ := i
+  unfold Prover.append
+  simp only [hi, dif_pos, id_eq, eq_mpr_eq_cast, eq_mp_eq_cast, Fin.eta]
+  refine (cast_map_prod hM hP _ _).trans ?_
+  congr 1
+  all_goals (congr 1; simp only [dcast_eq_root_cast, cast_cast]; rfl)
+
+/-- `append_receiveChallenge_inl` on the raw appended index. See `append_sendMessage_lt`. -/
+theorem append_receiveChallenge_lt (i : ChallengeIdx (pSpec₁ ++ₚ pSpec₂))
+    (hi : (i.1 : ℕ) < m) (hd : pSpec₁.dir ⟨(i.1 : ℕ), hi⟩ = .V_to_P)
+    (st : (P₁.append P₂).PrvState i.1.castSucc)
+    (hS : (P₁.append P₂).PrvState i.1.castSucc
+            = P₁.PrvState (⟨(i.1 : ℕ), hi⟩ : Fin m).castSucc)
+    (hC : (pSpec₁ ++ₚ pSpec₂).Challenge i = pSpec₁.Challenge ⟨⟨(i.1 : ℕ), hi⟩, hd⟩)
+    (hP : P₁.PrvState (⟨(i.1 : ℕ), hi⟩ : Fin m).succ
+            = (P₁.append P₂).PrvState i.1.succ) :
+    (P₁.append P₂).receiveChallenge i st
+      = (fun f c => cast hP (f (cast hC c)))
+        <$> P₁.receiveChallenge ⟨⟨(i.1 : ℕ), hi⟩, hd⟩ (cast hS st) := by
+  obtain ⟨i, hDir⟩ := i
+  unfold Prover.append
+  simp only [hi, dif_pos, id_eq, eq_mpr_eq_cast, eq_mp_eq_cast, Fin.eta]
+  refine (cast_map_arrow hC.symm hP _ _).trans ?_
+  congr 1
+  all_goals (congr 1; simp only [dcast_eq_root_cast, cast_cast]; rfl)
+
 /-! The right region and the boundary are stated on the **raw** appended index rather than on a
 right-injected one. That is deliberate: `Prover.append` produces the `pSpec₂` index as `i - m`, and
 `i - m` does not rewrite to `j` under the dependent proofs carried by `Fin.mk`, so phrasing these on
@@ -959,6 +1000,117 @@ theorem append_runToRound_zero (stmt : Stmt₁) (wit : Wit₁) :
   simp only [ChallengeIdx, Challenge, liftM_pure, map_pure]
   congr 1
   exact Prod.ext (Subsingleton.elim _ _) rfl
+
+theorem runToRound_mk_zero {N : ℕ} {pSpec : ProtocolSpec N} {S W S' W' : Type}
+    (P : Prover oSpec S W S' W' pSpec) (h : 0 < N + 1) (stmt : S) (wit : W) :
+    P.runToRound ⟨0, h⟩ stmt wit = pure (default, P.input (stmt, wit)) := by
+  show P.runToRound 0 stmt wit = _
+  simp only [Prover.runToRound, Fin.induction_zero]
+  rfl
+
+theorem liftM_liftM_base {α : Type} (x : OracleComp oSpec α) :
+    (liftM ((liftM x : OracleComp (oSpec + [pSpec₁.Challenge]ₒ) α)) :
+        OracleComp (oSpec + [(pSpec₁ ++ₚ pSpec₂).Challenge]ₒ) α)
+      = liftM x := by
+  induction x using OracleComp.inductionOn with
+  | pure a => simp
+  | query_bind t oa ih =>
+    simp only [liftM_bind, ih]
+    rfl
+
+theorem map_bind_left {α β γ : Type} {ι' : Type} {spec : OracleSpec ι'}
+    (f : α → β) (x : OracleComp spec α) (g : β → OracleComp spec γ) :
+    (f <$> x) >>= g = x >>= fun a => g (f a) := by
+  simp
+
+theorem liftM_liftM_getChallenge_inl (i : ChallengeIdx pSpec₁) :
+    (liftM ((liftM (pSpec₁.getChallenge i) :
+            OracleComp (oSpec + [pSpec₁.Challenge]ₒ) (pSpec₁.Challenge i))) :
+        OracleComp (oSpec + [(pSpec₁ ++ₚ pSpec₂).Challenge]ₒ) (pSpec₁.Challenge i))
+      = cast (challenge_append_inl (pSpec₂ := pSpec₂) i)
+          <$> (liftM ((pSpec₁ ++ₚ pSpec₂).getChallenge (ChallengeIdx.inl i)) :
+                OracleComp (oSpec + [(pSpec₁ ++ₚ pSpec₂).Challenge]ₒ) _) := rfl
+
+set_option maxHeartbeats 4000000 in
+theorem append_processRound_lt (v : ℕ) (hv : v < m) (hvn : v < m + n)
+    (X : OracleComp (oSpec + [pSpec₁.Challenge]ₒ)
+          (pSpec₁.Transcript ⟨v, by omega⟩ × P₁.PrvState ⟨v, by omega⟩)) :
+    Prover.processRound ⟨v, hvn⟩ (P₁.append P₂)
+        ((fun p => (liftTranscript (pSpec₂ := pSpec₂) v (by omega) (by omega) p.1,
+                    cast (Prover.prvState_lt' (P₁ := P₁) (P₂ := P₂)
+                      v (by omega) (by omega)).symm p.2))
+          <$> liftM X)
+      = (fun p => (liftTranscript (pSpec₂ := pSpec₂) (v + 1) (by omega) (by omega) p.1,
+                   cast (Prover.prvState_lt' (P₁ := P₁) (P₂ := P₂)
+                     (v + 1) (by omega) (by omega)).symm p.2))
+        <$> liftM (Prover.processRound ⟨v, hv⟩ P₁ X) := by
+  unfold Prover.processRound
+  simp only [map_bind, liftM_bind, bind_assoc, bind_map_left, Function.comp]
+  refine bind_congr fun p => ?_
+  have hdir : (pSpec₁ ++ₚ pSpec₂).dir ⟨v, hvn⟩ = pSpec₁.dir ⟨v, hv⟩ :=
+    dir_append_lt (pSpec₂ := pSpec₂) v hv hvn
+  split
+  · rename_i hDirA
+    split
+    · rename_i hDirB
+      simp only [liftM_bind, map_bind, bind_assoc, liftM_pure, map_pure, bind_pure_comp,
+        liftM_liftM_getChallenge_inl, Function.comp]
+      rw [map_bind_left]
+      refine bind_congr fun ch => ?_
+      rw [Prover.append_receiveChallenge_lt (hi := hv) (hd := hDirB)
+        (hS := Prover.prvState_lt' v hv.le hvn.le)
+        (hC := ProtocolSpec.type_append_lt v hv hvn)
+        (hP := (Prover.prvState_lt' (v + 1) (by omega) (by omega)).symm)]
+      simp only [liftM_map, liftM_liftM_base, cast_cast, cast_eq, Functor.map_map]
+      congr 1
+      funext f
+      congr 1
+      rw [liftTranscript_concat (pSpec₂ := pSpec₂) v hv hvn]
+      congr 1
+      exact (eq_of_heq ((cast_heq _ _).trans (cast_heq _ ch))).symm
+    · rename_i hDirB
+      exact Direction.noConfusion ((hdir.symm.trans hDirA).symm.trans hDirB)
+  · rename_i hDirA
+    split
+    · rename_i hDirB
+      exact Direction.noConfusion ((hdir.symm.trans hDirA).symm.trans hDirB)
+    · rename_i hDirB
+      simp only [liftM_bind, map_bind, bind_assoc, liftM_pure, map_pure, bind_pure_comp,
+        Function.comp]
+      rw [Prover.append_sendMessage_lt (hi := hv) (hd := hDirB)
+        (hS := Prover.prvState_lt' v hv.le hvn.le)
+        (hM := (ProtocolSpec.type_append_lt v hv hvn).symm)
+        (hP := (Prover.prvState_lt' (v + 1) (by omega) (by omega)).symm)]
+      simp only [liftM_map, liftM_liftM_base, cast_cast, cast_eq, Functor.map_map]
+      congr 1
+      funext x
+      congr 1
+      rw [liftTranscript_concat (pSpec₂ := pSpec₂) v hv hvn]
+
+
+set_option maxHeartbeats 4000000 in
+theorem append_runToRound_lt (stmt : Stmt₁) (wit : Wit₁) :
+    ∀ (v : ℕ) (hv : v ≤ m) (hvn : v ≤ m + n),
+    (P₁.append P₂).runToRound ⟨v, by omega⟩ stmt wit
+      = (fun p => (liftTranscript (pSpec₂ := pSpec₂) v hv hvn p.1,
+                   cast (Prover.prvState_lt' (P₁ := P₁) (P₂ := P₂) v hv hvn).symm p.2))
+        <$> liftM (P₁.runToRound ⟨v, by omega⟩ stmt wit) := by
+  intro v
+  induction v with
+  | zero =>
+    intro hv hvn
+    rw [runToRound_mk_zero, runToRound_mk_zero, Prover.append_input]
+    simp only [ChallengeIdx, Challenge, liftM_pure, map_pure]
+    congr 1
+    refine Prod.ext ?_ ?_
+    · exact Subsingleton.elim _ _
+    · rfl
+  | succ v ih =>
+    intro hv hvn
+    rw [Prover.runToRound_mk_succ (P₁.append P₂) v (by omega),
+        Prover.runToRound_mk_succ P₁ v (by omega),
+        ih (by omega) (by omega)]
+    exact append_processRound_lt v (by omega) (by omega) _
 
 /--
 States that running an appended prover `P₁.append P₂` with an initial statement `stmt₁` and

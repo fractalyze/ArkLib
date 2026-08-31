@@ -188,6 +188,15 @@ theorem liftTranscript_snoc (v : ℕ) (hv : v < m) (h : v < m + n)
     simp [liftTranscript]
     rfl
 
+/-- `liftTranscript_snoc` phrased with `Transcript.concat`. The two are definitionally equal, but
+`rw` matches syntactically, and a round induction's goals carry `Transcript.concat`. -/
+theorem liftTranscript_concat (v : ℕ) (hv : v < m) (h : v < m + n)
+    (T : pSpec₁.Transcript ⟨v, by omega⟩) (msg : pSpec₁.Type ⟨v, hv⟩) :
+    liftTranscript (pSpec₂ := pSpec₂) (v + 1) (by omega) (by omega) (Transcript.concat msg T)
+      = Transcript.concat (cast (type_append_lt (pSpec₂ := pSpec₂) v hv h).symm msg)
+          (liftTranscript (pSpec₂ := pSpec₂) v (by omega) (by omega) T) :=
+  liftTranscript_snoc v hv h T msg
+
 namespace Transcript
 
 variable {k : Fin (m + n + 1)}
