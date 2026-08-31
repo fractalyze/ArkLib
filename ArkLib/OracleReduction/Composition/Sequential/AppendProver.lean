@@ -721,20 +721,270 @@ theorem append_runToRound_lt (stmt : Stmt₁) (wit : Wit₁) :
         ih (by omega) (by omega)]
     exact append_processRound_lt v (by omega) (by omega) _
 
+set_option maxHeartbeats 4000000 in
+-- Same cast-chasing as `append_processRound_lt`, on the right region. Raised limit.
+/-- `processRound` distributes over a bind in its input: it consumes the input with a single
+`>>=`, so this is `bind_assoc`. The right-region induction needs it to reach past the `P₁` run and
+the `P₁.output`/`P₂.input` handover that sit in front of `P₂`'s partial run. -/
+theorem processRound_bind {N : ℕ} {pSpec : ProtocolSpec N} {S W S' W' α : Type}
+    (j : Fin N) (P : Prover oSpec S W S' W' pSpec)
+    (A : OracleComp (oSpec + [pSpec.Challenge]ₒ) α)
+    (f : α → OracleComp (oSpec + [pSpec.Challenge]ₒ)
+          (pSpec.Transcript j.castSucc × P.PrvState j.castSucc)) :
+    Prover.processRound j P (A >>= f) = A >>= fun a => Prover.processRound j P (f a) := by
+  unfold Prover.processRound
+  rw [bind_assoc]
+
+/-- Unfold `runToRound` at index `1`. Like `runToRound_mk_zero` / `runToRound_mk_succ` this is a
+`show`-based defeq bridge: `Fin.induction_succ` fires on `Fin.succ ⟨0, _⟩` and a literal `1` is not
+syntactically that. -/
+theorem runToRound_mk_one {N : ℕ} {pSpec : ProtocolSpec N} {S W S' W' : Type}
+    (P : Prover oSpec S W S' W' pSpec) (hN : 0 < N) (stmt : S) (wit : W) :
+    P.runToRound ⟨1, by omega⟩ stmt wit = Prover.processRound ⟨0, hN⟩ P
+      (pure ((default : pSpec.Transcript 0), P.input (stmt, wit))) := by
+  change P.runToRound (Fin.succ ⟨0, hN⟩) stmt wit = _
+  simp only [Prover.runToRound, Fin.induction_succ]
+  rfl
+
+/-- The right region's `processRound` commutation, the counterpart of `append_processRound_lt`.
+Runs for `w ≥ 1`; `w = 0` is the boundary round, which is `append_processRound_boundary`. -/
+theorem append_processRound_add (w : ℕ) (hw : w < n) (hw0 : 0 < w)
+    (T₁ : pSpec₁.FullTranscript)
+    (X : OracleComp (oSpec + [pSpec₂.Challenge]ₒ)
+          (pSpec₂.Transcript ⟨w, by omega⟩ × P₂.PrvState ⟨w, by omega⟩)) :
+    Prover.processRound ⟨m + w, by omega⟩ (P₁.append P₂)
+        ((fun p => (liftTranscriptR (pSpec₁ := pSpec₁) w (by omega) T₁ p.1,
+                    cast (Prover.prvState_add (P₁ := P₁) (P₂ := P₂) w (by omega) hw0).symm p.2))
+          <$> liftM X)
+      = (fun p => (liftTranscriptR (pSpec₁ := pSpec₁) (w + 1) (by omega) T₁ p.1,
+                   cast (Prover.prvState_add (P₁ := P₁) (P₂ := P₂) (w + 1) (by omega)
+                     (by omega)).symm p.2))
+        <$> liftM (Prover.processRound ⟨w, hw⟩ P₂ X) := by
+  unfold Prover.processRound
+  simp only [map_bind, liftM_bind, bind_map_left]
+  refine bind_congr fun p => ?_
+  have hdir : (pSpec₁ ++ₚ pSpec₂).dir ⟨m + w, by omega⟩ = pSpec₂.dir ⟨w, hw⟩ :=
+    dir_append_add (pSpec₁ := pSpec₁) w hw (by omega)
+  split
+  · rename_i hDirA
+    split
+    · rename_i hDirB
+      rw [Prover.append_receiveChallenge_add (P₁ := P₁) (P₂ := P₂) w hw hw0 (by omega)
+        hDirA hDirB _
+        (hS := Prover.prvState_add w (by omega) hw0)
+        (hC := ProtocolSpec.type_append_add w hw (by omega))
+        (hP := (Prover.prvState_add (w + 1) (by omega) (by omega)).symm)]
+      simp only [liftM_map, liftM_bind, map_bind, liftM_liftM_base_right,
+        liftM_liftM_getChallenge_inr, bind_map_left, bind_pure_comp, cast_cast,
+        Functor.map_map]
+      refine bind_congr fun a => ?_
+      congr 1
+      funext ch
+      rw [liftTranscriptR_concat (pSpec₁ := pSpec₁) w hw T₁]
+      congr 2
+      exact (eq_of_heq ((cast_heq _ _).trans (cast_heq _ ch))).symm
+    · rename_i hDirB
+      exact Direction.noConfusion ((hdir.symm.trans hDirA).symm.trans hDirB)
+  · rename_i hDirA
+    split
+    · rename_i hDirB
+      exact Direction.noConfusion ((hdir.symm.trans hDirA).symm.trans hDirB)
+    · rename_i hDirB
+      simp only [bind_pure_comp]
+      rw [Prover.append_sendMessage_add (P₁ := P₁) (P₂ := P₂) w hw hw0 (by omega)
+        hDirA hDirB _
+        (hS := Prover.prvState_add w (by omega) hw0)
+        (hM := (ProtocolSpec.type_append_add w hw (by omega)).symm)
+        (hP := (Prover.prvState_add (w + 1) (by omega) (by omega)).symm)]
+      simp only [liftM_map, liftM_liftM_base_right, cast_cast, Functor.map_map]
+      congr 1
+      funext x
+      congr 1
+      rw [liftTranscriptR_concat (pSpec₁ := pSpec₁) w hw T₁]
+
+set_option maxHeartbeats 4000000 in
+-- Both sides carry `Prover.append`'s `dcast` chains through a two-sided direction split.
+-- Raised limit.
+/-- **The boundary round commutes.** Processing round `m` of the appended protocol, applied to the
+left region's result, runs `P₁.output`, feeds it through `P₂.input`, and takes `P₂`'s first round --
+in that order, and at the same point in the sequence as running `P₁` to completion and then starting
+`P₂`. This is the step that makes `append_run` true, and it is true only because
+`Prover.processRound` draws a round's challenge *after* the prover's own queries for that round; see
+its docstring, and `headIsBase_append_run_eq_base` below. -/
+theorem append_processRound_boundary (hn : 0 < n)
+    (X : OracleComp (oSpec + [pSpec₁.Challenge]ₒ)
+          (pSpec₁.Transcript ⟨m, by omega⟩ × P₁.PrvState ⟨m, by omega⟩)) :
+    Prover.processRound ⟨m, by omega⟩ (P₁.append P₂)
+        ((fun p => (liftTranscript (pSpec₂ := pSpec₂) m le_rfl (by omega) p.1,
+                    cast (Prover.prvState_lt' (P₁ := P₁) (P₂ := P₂) m le_rfl (by omega)).symm p.2))
+          <$> liftM X)
+      = (do
+          let p ← liftM X
+          let ctx ← liftM (P₁.output p.2)
+          let q ← liftM (Prover.processRound ⟨0, hn⟩ P₂
+                    (pure ((default : pSpec₂.Transcript 0), P₂.input ctx)))
+          return (liftTranscriptR (pSpec₁ := pSpec₁) 1 hn p.1 q.1,
+                  cast (Prover.prvState_add (P₁ := P₁) (P₂ := P₂) 1 hn Nat.one_pos).symm q.2)) := by
+  unfold Prover.processRound
+  simp only [bind_map_left, pure_bind]
+  refine bind_congr fun p => ?_
+  have hdir : (pSpec₁ ++ₚ pSpec₂).dir ⟨m, by omega⟩ = pSpec₂.dir ⟨0, hn⟩ :=
+    dir_append_add (pSpec₁ := pSpec₁) 0 hn (by omega)
+  split
+  · rename_i hDirA
+    split
+    · rename_i hDirB
+      rw [Prover.append_receiveChallenge_boundary (P₁ := P₁) (P₂ := P₂) hn ⟨⟨m, by omega⟩, hDirA⟩
+        (by change ¬(m < m); omega) rfl hDirB _
+        (hS := Prover.prvState_lt' m le_rfl (by omega))
+        (hC := ProtocolSpec.type_append_add 0 hn (by omega))
+        (hP := (Prover.prvState_add 1 hn Nat.one_pos).symm)]
+      simp only [liftM_map, liftM_bind, map_bind, bind_assoc,
+        liftM_liftM_base_right, liftM_liftM_getChallenge_inr, bind_map_left, bind_pure_comp,
+        cast_cast, Functor.map_map]
+      refine bind_congr fun ctx => ?_
+      refine bind_congr fun u => ?_
+      congr 1
+      funext ch
+      rw [liftTranscriptR_one (pSpec₁ := pSpec₁) hn p.1]
+      congr 2
+      exact (eq_of_heq ((cast_heq _ _).trans (cast_heq _ ch))).symm
+    · rename_i hDirB
+      exact Direction.noConfusion ((hdir.symm.trans hDirA).symm.trans hDirB)
+  · rename_i hDirA
+    split
+    · rename_i hDirB
+      exact Direction.noConfusion ((hdir.symm.trans hDirA).symm.trans hDirB)
+    · rename_i hDirB
+      rw [Prover.append_sendMessage_boundary (P₁ := P₁) (P₂ := P₂) hn ⟨⟨m, by omega⟩, hDirA⟩
+        (by change ¬(m < m); omega) rfl hDirB _
+        (hS := Prover.prvState_lt' m le_rfl (by omega))
+        (hM := (ProtocolSpec.type_append_add 0 hn (by omega)).symm)
+        (hP := (Prover.prvState_add 1 hn Nat.one_pos).symm)]
+      simp only [liftM_map, liftM_bind, map_bind, liftM_liftM_base_right,
+        bind_pure_comp, cast_cast, Functor.map_map]
+      refine bind_congr fun ctx => ?_
+      congr 1
+      funext x
+      rw [liftTranscriptR_one (pSpec₁ := pSpec₁) hn p.1]
+      rfl
+
+set_option maxHeartbeats 4000000 in
+-- The induction re-elaborates `append_processRound_add`'s statement, casts included,
+-- at every step. Raised limit.
+/-- **The right region's round induction.** After the boundary, the appended prover's partial run
+is `P₁`'s full run, then the `P₁.output` / `P₂.input` handover, then `P₂`'s partial run -- with the
+two transcripts combined by `liftTranscriptR` and the state transported by `prvState_add`.
+
+This cannot be stated uniformly from `w = 0`: at the boundary round the appended prover's state is
+still `P₁`'s and `P₁.output` has not fired, so the equation is false there. It runs from `w = 1`,
+with `append_processRound_boundary` as its base case and `append_runToRound_lt` supplying the left
+region. -/
+theorem append_runToRound_ge (stmt : Stmt₁) (wit : Wit₁) (hn : 0 < n) :
+    ∀ (w : ℕ) (hw : w ≤ n) (hw0 : 0 < w),
+    (P₁.append P₂).runToRound ⟨m + w, by omega⟩ stmt wit
+      = (do
+          let p ← liftM (P₁.runToRound ⟨m, by omega⟩ stmt wit)
+          let ctx ← liftM (P₁.output p.2)
+          let q ← liftM (P₂.runToRound ⟨w, by omega⟩ ctx.1 ctx.2)
+          return (liftTranscriptR (pSpec₁ := pSpec₁) w hw p.1 q.1,
+                  cast (Prover.prvState_add (P₁ := P₁) (P₂ := P₂) w hw hw0).symm q.2)) := by
+  intro w
+  induction w with
+  | zero => intro _ hw0; exact absurd hw0 (lt_irrefl 0)
+  | succ w ih =>
+    intro hw _
+    rcases Nat.eq_zero_or_pos w with rfl | hw0
+    · refine Eq.trans (Prover.runToRound_mk_succ (P₁.append P₂) m (by omega) stmt wit) ?_
+      rw [append_runToRound_lt stmt wit m le_rfl (by omega)]
+      refine Eq.trans (append_processRound_boundary (P₁ := P₁) (P₂ := P₂) hn
+        (P₁.runToRound ⟨m, by omega⟩ stmt wit)) ?_
+      refine bind_congr fun p => ?_
+      refine bind_congr fun ctx => ?_
+      rw [runToRound_mk_one P₂ hn ctx.1 ctx.2]
+      rfl
+    · refine Eq.trans
+        (Prover.runToRound_mk_succ (P₁.append P₂) (m + w) (by omega) stmt wit) ?_
+      rw [ih (by omega) hw0]
+      refine Eq.trans (processRound_bind ⟨m + w, by omega⟩ (P₁.append P₂) _ _) ?_
+      refine bind_congr fun p => ?_
+      refine Eq.trans (processRound_bind ⟨m + w, by omega⟩ (P₁.append P₂) _ _) ?_
+      refine bind_congr fun ctx => ?_
+      rw [Prover.runToRound_mk_succ P₂ w (by omega)]
+      simp only [bind_pure_comp]
+      exact append_processRound_add w (by omega) hw0 p.1 _
+
+
+/-- `Fin.last N` written as a raw `Fin.mk`, which is the index the round inductions produce. -/
+theorem runToRound_last {N : ℕ} {pSpec : ProtocolSpec N} {S W S' W' : Type}
+    (P : Prover oSpec S W S' W' pSpec) (stmt : S) (wit : W) :
+    P.runToRound (Fin.last N) stmt wit = P.runToRound ⟨N, by omega⟩ stmt wit := rfl
+
+set_option maxHeartbeats 4000000 in
+-- Both cases normalize a four-deep monadic bind tree through the lift lemmas.
+-- Raised limit.
 /--
 States that running an appended prover `P₁.append P₂` with an initial statement `stmt₁` and
 witness `wit₁` behaves as expected: it first runs `P₁` to obtain an intermediate statement
 `stmt₂`, witness `wit₂`, and transcript `transcript₁`. Then, it runs `P₂` on `stmt₂` and `wit₂`
 to produce the final statement `stmt₃`, witness `wit₃`, and transcript `transcript₂`.
 The overall output is `stmt₃`, `wit₃`, and the combined transcript `transcript₁ ++ₜ transcript₂`.
+
+The two cases are the two shapes of `Prover.append`'s `output`: when `pSpec₂` is non-empty the
+handover happened at the boundary round and `output` is `P₂`'s (`append_output_pos`); when it is
+empty there is no boundary round and `output` is where `P₁.output`, `P₂.input` and `P₂.output` all
+fire (`append_output_zero`). Either way `P₁.output` runs exactly once, at the same point in the
+sequence as on the right-hand side.
 -/
 theorem append_run (stmt : Stmt₁) (wit : Wit₁) :
       (P₁.append P₂).run stmt wit = (do
         let ⟨transcript₁, stmt₂, wit₂⟩ ← liftM (P₁.run stmt wit)
         let ⟨transcript₂, stmt₃, wit₃⟩ ← liftM (P₂.run stmt₂ wit₂)
         return ⟨transcript₁ ++ₜ transcript₂, stmt₃, wit₃⟩) := by
-  unfold run runToRound
-  sorry
+  rcases Nat.eq_zero_or_pos n with hn0 | hn
+  · subst hn0
+    unfold Prover.run
+    have hrun : (P₁.append P₂).runToRound (Fin.last (m + 0)) stmt wit
+        = (fun p => (liftTranscript (pSpec₂ := pSpec₂) m le_rfl (by omega) p.1,
+                     cast (Prover.prvState_lt' (P₁ := P₁) (P₂ := P₂) m le_rfl (by omega)).symm p.2))
+          <$> liftM (P₁.runToRound ⟨m, by omega⟩ stmt wit) :=
+      append_runToRound_lt stmt wit m le_rfl (by omega)
+    have hrun₂ : ∀ (s : Stmt₂) (w : Wit₂), P₂.runToRound (Fin.last 0) s w
+        = pure ((default : pSpec₂.Transcript 0), P₂.input (s, w)) :=
+      fun s w => Prover.runToRound_mk_zero P₂ (by omega) s w
+    have hlp : ∀ (α : Type) (x : α),
+        (liftM (pure x : OracleComp (oSpec + [pSpec₂.Challenge]ₒ) α) :
+          OracleComp (oSpec + [(pSpec₁ ++ₚ pSpec₂).Challenge]ₒ) α) = pure x := fun _ _ => rfl
+    rw [hrun]
+    simp only [hrun₂, runToRound_last, liftM_bind, liftM_map, map_bind, bind_map_left,
+      bind_assoc, pure_bind, liftM_pure, bind_pure_comp, liftM_liftM_base,
+      liftM_liftM_base_right, Functor.map_map, Function.comp]
+    refine bind_congr fun a => ?_
+    rw [Prover.append_output_zero (P₁ := P₁) (P₂ := P₂) rfl _
+      (Prover.prvState_lt' m le_rfl (by omega)) rfl]
+    have hT : liftTranscript (pSpec₂ := pSpec₂) m le_rfl (by omega) a.1
+        = a.1 ++ₜ (default : pSpec₂.FullTranscript) :=
+      (liftTranscriptR_zero a.1 default).symm.trans (liftTranscriptR_full a.1 default)
+    simp only [liftM_bind, liftM_liftM_base, bind_assoc, cast_cast, cast_eq, bind_pure_comp,
+      map_bind, Functor.map_map, Function.comp, hT]
+    rfl
+  · unfold Prover.run
+    simp only [runToRound_last]
+    rw [append_runToRound_ge (P₁ := P₁) (P₂ := P₂) stmt wit hn n le_rfl hn]
+    simp only [liftM_bind, liftM_map, map_bind, bind_map_left, bind_assoc, pure_bind,
+      liftM_pure, bind_pure_comp, liftM_liftM_base, liftM_liftM_base_right, Functor.map_map,
+      Function.comp]
+    refine Eq.trans (bind_assoc _ _ _) ?_
+    refine bind_congr fun p => ?_
+    refine Eq.trans (bind_assoc _ _ _) ?_
+    refine bind_congr fun ctx => ?_
+    refine Eq.trans (map_bind_left _ _ _) ?_
+    refine bind_congr fun a => ?_
+    rw [Prover.append_output_pos (P₁ := P₁) (P₂ := P₂) (Nat.pos_iff_ne_zero.mp hn)
+        _ (Prover.prvState_add n le_rfl hn)]
+    simp only [liftTranscriptR_full]
+    exact congrArg (fun s => Prod.mk (p.1 ++ₜ a.1) <$> liftM (P₂.output s))
+      (eq_of_heq ((cast_heq _ _).trans (cast_heq _ a.2)))
 
 -- TODO: Need to define a function that "extracts" a second prover from the combined prover
 

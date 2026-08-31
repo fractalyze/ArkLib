@@ -303,6 +303,19 @@ theorem liftTranscriptR_zero (T₁ : pSpec₁.FullTranscript)
   simp only [liftTranscriptR, liftTranscript, dif_pos hi]
   rfl
 
+/-- `liftTranscriptR_concat` at the boundary, with the round written as `1` rather than `0 + 1`
+and the `w = 0` combiner already collapsed to `liftTranscript`. This is the exact rewrite the
+boundary round needs, and `rw` will not find `liftTranscriptR_concat` there: its left-hand side
+mentions `0 + 1`, which is definitionally but not syntactically `1`. -/
+theorem liftTranscriptR_one (hn : 0 < n) (T₁ : pSpec₁.FullTranscript)
+    (msg : pSpec₂.Type ⟨0, hn⟩) :
+    liftTranscriptR (pSpec₁ := pSpec₁) 1 hn T₁
+        (Transcript.concat msg (default : pSpec₂.Transcript 0))
+      = Transcript.concat (cast (type_append_add (pSpec₁ := pSpec₁) 0 hn (by omega)).symm msg)
+          (liftTranscript (pSpec₂ := pSpec₂) m le_rfl (by omega) T₁) := by
+  refine (liftTranscriptR_concat (pSpec₁ := pSpec₁) 0 hn T₁ default msg).trans ?_
+  rw [liftTranscriptR_zero]
+
 namespace Transcript
 
 variable {k : Fin (m + n + 1)}
@@ -407,6 +420,23 @@ theorem append_snd (T₁ : FullTranscript pSpec₁) (T₂ : FullTranscript pSpec
   simp [snd, append]
 
 end FullTranscript
+
+/-- The right-region combiner at `w = n` is transcript concatenation. This is the last piece of
+`Prover.append_run`: the appended prover's transcript really is `T₁ ++ₜ T₂`. -/
+theorem liftTranscriptR_full (T₁ : pSpec₁.FullTranscript) (T₂ : pSpec₂.FullTranscript) :
+    liftTranscriptR (pSpec₁ := pSpec₁) n le_rfl T₁ T₂ = T₁ ++ₜ T₂ := by
+  funext i
+  refine Fin.addCases (fun j => ?_) (fun j => ?_) i
+  · simp only [liftTranscriptR, FullTranscript.append, Fin.happend, Fin.fappend_left,
+      Fin.val_castAdd, dif_pos j.isLt]
+    exact eq_of_heq ((cast_heq _ _).trans (cast_heq _ _).symm)
+  · have hj : ¬ (m + (j : ℕ) < m) := by omega
+    have hidx : (⟨m + (j : ℕ) - m, by omega⟩ : Fin n) = j := Fin.ext (by simp)
+    simp only [liftTranscriptR, FullTranscript.append, Fin.happend, Fin.fappend_right,
+      Fin.val_natAdd, dif_neg hj]
+    refine eq_of_heq (((cast_heq _ _).trans ?_).trans (cast_heq _ _).symm)
+    rw [hidx]
+    exact HEq.rfl
 
 def MessageIdx.inl (i : MessageIdx pSpec₁) : MessageIdx (pSpec₁ ++ₚ pSpec₂) :=
   ⟨Fin.castAdd n i.1, by simpa only [Fin.vappend_eq_append, Fin.append_left] using i.2⟩
