@@ -908,6 +908,43 @@ theorem prvState_castAdd (i : Fin (m + 1)) :
   simp [Prover.append, Fin.append, Fin.addCases, Fin.cast, Fin.castLT, Fin.castAdd, Fin.castLE]
   omega
 
+/-! The two transports below are phrased on the **appended** index `k` with `k ≤ m`, rather than on
+`Fin.cast _ (Fin.castAdd n i)`. That is the indexing `Fin.induction` actually produces on the
+left-hand side, so stating them this way means the induction never has to rewrite its own index --
+which it cannot do, since the transcript and state types both depend on it. -/
+
+/-- State transport at an appended round index inside the left component. -/
+theorem prvState_le (k : Fin (m + n + 1)) (hk : (k : ℕ) ≤ m) :
+    (P₁.append P₂).PrvState k = P₁.PrvState ⟨k, by omega⟩ := by
+  have hlt : (k : ℕ) < m + 1 := by omega
+  simp [Prover.append, Fin.append, Fin.addCases, Fin.cast, Fin.castLT, hlt]
+
+/-- Transcript transport at an appended round index inside the left component. -/
+theorem transcript_le (k : Fin (m + n + 1)) (hk : (k : ℕ) ≤ m) :
+    (pSpec₁ ++ₚ pSpec₂).Transcript k = pSpec₁.Transcript ⟨k, by omega⟩ := by
+  show ((pSpec₁ ++ₚ pSpec₂).take _ _).FullTranscript = (pSpec₁.take _ _).FullTranscript
+  rw [take_append_left_of_le hk]
+
+/-- State transport at a raw `Fin.mk` index, the form a `Nat`-indexed round induction produces.
+Pairs with `ProtocolSpec.liftTranscript` on the transcript side. -/
+theorem prvState_lt' (v : ℕ) (hv : v ≤ m) (hvn : v ≤ m + n) :
+    (P₁.append P₂).PrvState ⟨v, by omega⟩ = P₁.PrvState ⟨v, by omega⟩ := by
+  have hlt : v < m + 1 := by omega
+  simp [Prover.append, Fin.append, Fin.addCases, Fin.cast, Fin.castLT, hlt]
+
+/-- Unfold `runToRound` one round at a raw `Fin.mk` successor index.
+
+`Fin.induction_succ` only fires on an index of the form `Fin.succ j`, and a round induction hands
+you `⟨v + 1, _⟩` instead. The two are definitionally equal, so `show` bridges them -- but `rw`
+cannot, because the motive is not type correct. -/
+theorem runToRound_mk_succ {N : ℕ} {pSpec : ProtocolSpec N} {S W S' W' : Type}
+    (P : Prover oSpec S W S' W' pSpec) (v : ℕ) (hv : v < N) (stmt : S) (wit : W) :
+    P.runToRound ⟨v + 1, by omega⟩ stmt wit
+      = Prover.processRound ⟨v, hv⟩ P (P.runToRound ⟨v, by omega⟩ stmt wit) := by
+  show P.runToRound (Fin.succ ⟨v, hv⟩) stmt wit = _
+  simp only [Prover.runToRound, Fin.induction_succ]
+  rfl
+
 /-- **Base case of the round induction.** Before any round has run, the appended prover's partial
 run is `P₁`'s, transported. The appended index is written as `0` rather than as
 `Fin.cast _ (Fin.castAdd n 0)` because the two are definitionally equal and `Fin.induction_zero`

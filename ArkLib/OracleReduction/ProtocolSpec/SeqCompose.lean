@@ -114,14 +114,29 @@ theorem take_append_left_of_le {k : ℕ} (hk : k ≤ m) :
   · simp only [Fin.take_apply, key, Fin.append_left]
   · simp only [Fin.take_apply, key, Fin.append_left]
 
+/-- The direction of an appended protocol at a left-injected round is the left component's. -/
+@[simp]
+theorem dir_append_castAdd (i : Fin m) :
+    (pSpec₁ ++ₚ pSpec₂).dir (Fin.castAdd n i) = pSpec₁.dir i := by
+  simp [ProtocolSpec.append, Fin.vappend_eq_append, Fin.append_left]
+
+/-- `dir_append_castAdd` at a raw `Fin.mk` index. Stated separately, and proved by handing the
+`castAdd` form straight back, because rewriting `⟨v, _⟩` into `Fin.castAdd n ⟨v, _⟩` inside a goal
+fails on a non-type-correct motive once a bound like `v < m` is in play: the bound mentions the very
+index being rewritten. Taking the value and its two bounds as parameters makes the two sides
+definitionally equal, so no rewrite is needed. -/
+theorem dir_append_lt (v : ℕ) (hv : v < m) (h : v < m + n) :
+    (pSpec₁ ++ₚ pSpec₂).dir ⟨v, h⟩ = pSpec₁.dir ⟨v, hv⟩ :=
+  dir_append_castAdd (pSpec₂ := pSpec₂) ⟨v, hv⟩
+
 /-- The transcript type of an appended protocol, cut at a round inside the left component, is the
 left component's transcript type. The transcript-level counterpart of `prvState_castSucc_inl`, and
 the transport a round induction carries alongside the state. -/
 theorem transcript_append_castAdd (i : Fin (m + 1)) :
     (pSpec₁ ++ₚ pSpec₂).Transcript (Fin.cast (by omega) (Fin.castAdd n i))
       = pSpec₁.Transcript i := by
-  show ((pSpec₁ ++ₚ pSpec₂).take _ _).FullTranscript = (pSpec₁.take _ _).FullTranscript
-  simp only [Fin.coe_cast, Fin.coe_castAdd]
+  change ((pSpec₁ ++ₚ pSpec₂).take _ _).FullTranscript = (pSpec₁.take _ _).FullTranscript
+  simp only [Fin.val_cast, Fin.val_castAdd]
   rw [take_append_left_of_le (show (i : ℕ) ≤ m from i.is_le)]
 
 @[simp]
@@ -141,6 +156,37 @@ at an index in the second half is the right spec's type. -/
 theorem append_Type_natAdd (i : Fin n) :
     (pSpec₁ ++ₚ pSpec₂).«Type» (Fin.natAdd m i) = pSpec₂.«Type» i := by
   simp only [Fin.vappend_eq_append, Fin.append_right]
+
+/-- `append_Type_castAdd` at a raw `Fin.mk` index. See `dir_append_lt` for why the value-and-bounds
+form is the usable one. -/
+theorem type_append_lt (v : ℕ) (hv : v < m) (h : v < m + n) :
+    (pSpec₁ ++ₚ pSpec₂).Type ⟨v, h⟩ = pSpec₁.Type ⟨v, hv⟩ :=
+  append_Type_castAdd (pSpec₂ := pSpec₂) ⟨v, hv⟩
+
+/-- Transport a left-component transcript into the appended protocol, **pointwise**.
+
+Deliberately not a `cast` of the whole function type: a round induction extends the transcript with
+`Fin.snoc` at every step, and `Fin.snoc` commutes with a pointwise transport computably
+(`liftTranscript_snoc`) whereas moving it across a `cast` of a Pi type does not reduce. -/
+def liftTranscript (v : ℕ) (hv : v ≤ m) (hvn : v ≤ m + n)
+    (T : pSpec₁.Transcript ⟨v, by omega⟩) :
+    (pSpec₁ ++ₚ pSpec₂).Transcript ⟨v, by omega⟩ :=
+  fun i => cast (type_append_lt (pSpec₁ := pSpec₁) (pSpec₂ := pSpec₂)
+    (i : ℕ) (Nat.lt_of_lt_of_le i.isLt hv) (Nat.lt_of_lt_of_le i.isLt hvn)).symm (T i)
+
+/-- Extending a transcript and transporting it commute. This is the transcript half of a round
+induction's step; the state half is `Prover.prvState_lt'`. -/
+theorem liftTranscript_snoc (v : ℕ) (hv : v < m) (h : v < m + n)
+    (T : pSpec₁.Transcript ⟨v, by omega⟩) (msg : pSpec₁.Type ⟨v, hv⟩) :
+    liftTranscript (pSpec₂ := pSpec₂) (v + 1) (by omega) (by omega) (Fin.snoc T msg)
+      = Fin.snoc (liftTranscript (pSpec₂ := pSpec₂) v (by omega) (by omega) T)
+                 (cast (type_append_lt (pSpec₂ := pSpec₂) v hv h).symm msg) := by
+  funext i
+  refine Fin.lastCases ?_ ?_ i
+  · simp [liftTranscript]
+  · intro i'
+    simp [liftTranscript]
+    rfl
 
 namespace Transcript
 
