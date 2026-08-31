@@ -683,6 +683,17 @@ plus both cases of `output`. So `Prover.append` is fully characterized: any proo
 proceed by rewriting rather than by unfolding. What remains for `append_run` is the round induction
 itself, over `Prover.runToRound`, together with the transcript bookkeeping. -/
 
+/-- The appended prover's initial state is `P₁`'s. -/
+theorem append_prvState_zero : (P₁.append P₂).PrvState 0 = P₁.PrvState 0 := by
+  simp [Prover.append, Fin.append, Fin.addCases, Fin.cast, Fin.castLT]
+
+/-- The appended prover initializes exactly as `P₁` does. The base case of a round induction. -/
+theorem append_input (x : Stmt₁ × Wit₁) :
+    (P₁.append P₂).input x
+      = cast (append_prvState_zero (P₁ := P₁) (P₂ := P₂)).symm (P₁.input x) := by
+  unfold Prover.append
+  simp only [id_eq, eq_mpr_eq_cast, eq_mp_eq_cast]
+
 /-- Transport of the appended state family at a left-injected round, before the round. -/
 theorem prvState_castSucc_inl (i : Fin m) :
     (P₁.append P₂).PrvState (Fin.castAdd n i).castSucc = P₁.PrvState i.castSucc := by

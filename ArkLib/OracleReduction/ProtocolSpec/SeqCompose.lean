@@ -103,6 +103,27 @@ theorem take_append_left :
 theorem take_append_left' : (pSpec₁ ++ₚ pSpec₂)⟦:m⟧ = pSpec₁ :=
   take_append_left
 
+/-- `take_append_left` at a general cut `k ≤ m`, not only at `k = m`. This is the form a round
+induction over an appended protocol needs, since it cuts at every intermediate round. -/
+theorem take_append_left_of_le {k : ℕ} (hk : k ≤ m) :
+    (pSpec₁ ++ₚ pSpec₂).take k (by omega) = pSpec₁.take k hk := by
+  have key : ∀ (i : Fin k), (Fin.castLE (by omega : k ≤ m + n) i)
+      = Fin.castAdd n (Fin.castLE hk i) := fun i => Fin.ext rfl
+  simp only [take, Fin.vappend_eq_append]
+  ext i
+  · simp only [Fin.take_apply, key, Fin.append_left]
+  · simp only [Fin.take_apply, key, Fin.append_left]
+
+/-- The transcript type of an appended protocol, cut at a round inside the left component, is the
+left component's transcript type. The transcript-level counterpart of `prvState_castSucc_inl`, and
+the transport a round induction carries alongside the state. -/
+theorem transcript_append_castAdd (i : Fin (m + 1)) :
+    (pSpec₁ ++ₚ pSpec₂).Transcript (Fin.cast (by omega) (Fin.castAdd n i))
+      = pSpec₁.Transcript i := by
+  show ((pSpec₁ ++ₚ pSpec₂).take _ _).FullTranscript = (pSpec₁.take _ _).FullTranscript
+  simp only [Fin.coe_cast, Fin.coe_castAdd]
+  rw [take_append_left_of_le (show (i : ℕ) ≤ m from i.is_le)]
+
 @[simp]
 theorem rtake_append_right :
     (pSpec₁ ++ₚ pSpec₂).rtake n (Nat.le_add_left n m) = pSpec₂ := by
