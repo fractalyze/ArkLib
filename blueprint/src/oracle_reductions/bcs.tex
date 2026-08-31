@@ -5,9 +5,11 @@ Reduction by replacing every oracle with a commitment and every oracle query wit
 argument. It captures both the original vector-commitment/Merkle-tree construction and the
 Polynomial IOP + Polynomial Commitment pattern used by Plonk and Marlin.
 
-This section is a blueprint, not a description of existing code:
-\texttt{ArkLib/OracleReduction/BCS/Basic.lean} currently contains
-\texttt{ProtocolSpec.renameMessage} and two commented-out stubs.
+Partly formalized. \texttt{ArkLib/OracleReduction/BCS/Basic.lean} now carries the
+batched protocol specification (\texttt{ProtocolSpec.BCSTransform}) and the
+admissibility obligation of Remark~\ref{rem:bcs_shortness}
+(\texttt{BCS.BatchingAdmissibility}). The reduction-level transform and the security
+statements of Section~\ref{sec:bcs_security} are still to be written.
 
 \subsection{The transformation}\label{sec:bcs_transform}
 
@@ -19,8 +21,12 @@ This section is a blueprint, not a description of existing code:
     opening argument attached to a query on message $i$.
 
     The transformed specification replaces each message type by its commitment type, using
-    \texttt{ProtocolSpec.renameMessage}, and then appends the opening arguments.
+    \texttt{ProtocolSpec.\allowbreak renameMessage}, and then appends the opening arguments.
+    Batched,
+    that is one fixed opening suffix rather than one per query, so the round count is
+    $n + n^{\mathsf{open}}$ rather than $n + \sum_i n^{\mathsf{open}}_i$.
     \lean{ProtocolSpec.renameMessage}
+    \lean{ProtocolSpec.BCSTransform}
 \end{definition}
 
 \begin{definition}[BCS transform]
@@ -99,6 +105,15 @@ the security proof is reachable at all.
     determined by the query count and the challenge set, under which the combination is admissible
     and binding still reduces to Module-SIS at the corresponding parameters. Carrying both
     predicates is what makes the batched route stateable; collapsing them is what makes it false.
+
+    Formalized as \texttt{BCS.BatchingAdmissibility}, whose
+    \texttt{combine\_isAdmissibleBatch} field is the obligation above. Its
+    \texttt{ofNormBound} constructor discharges that obligation for a norm-bounded scheme
+    and pins the slack: with per-message bound $B$, a bound $c$ on how far one challenge
+    can scale a message, and the triangle inequality for the combination, the batched
+    bound is $k \cdot c \cdot B$ in the query count $k$.
+    \lean{BCS.BatchingAdmissibility}
+    \lean{BCS.BatchingAdmissibility.ofNormBound}
 \end{remark}
 
 \subsection{What must be proved}\label{sec:bcs_security}

@@ -190,3 +190,8 @@ ArkLib.Lattices.CyclotomicModulus.no_selfReciprocal_factor
 ArkLib.Lattices.CyclotomicModulus.neg_one_notMem_powers_q
 ArkLib.Lattices.CyclotomicModulus.galoisAutₛ_fixed_isUnit
 ArkLib.Lattices.CyclotomicModulus.conjFixedSubring_isField
+ProtocolSpec.renameMessage
+ProtocolSpec.BCSTransform
+BCS.BatchingAdmissibility
+BCS.BatchingAdmissibility.ofNoGate
+BCS.BatchingAdmissibility.ofNormBound
