@@ -973,6 +973,14 @@ theorem prvState_lt' (v : ℕ) (hv : v ≤ m) (hvn : v ≤ m + n) :
   have hlt : v < m + 1 := by omega
   simp [Prover.append, Fin.append, Fin.addCases, Fin.cast, Fin.castLT, hlt]
 
+/-- State transport strictly after the boundary. At `v = m` the state is still `P₁`'s, which is why
+this needs `m < v` rather than `m ≤ v`; that round is `append_sendMessage_boundary`'s. -/
+theorem prvState_gt' (v : ℕ) (hm : m < v) (hvn : v ≤ m + n) :
+    (P₁.append P₂).PrvState ⟨v, by omega⟩ = P₂.PrvState ⟨v - m, by omega⟩ := by
+  have h1 : ¬ (v < m + 1) := by omega
+  simp [Prover.append, Fin.append, Fin.addCases, Fin.cast, Fin.castLT, Fin.tail, Fin.succ, h1]
+  try (congr 1; apply Fin.ext; simp; omega)
+
 /-- Unfold `runToRound` one round at a raw `Fin.mk` successor index.
 
 `Fin.induction_succ` only fires on an index of the form `Fin.succ j`, and a round induction hands

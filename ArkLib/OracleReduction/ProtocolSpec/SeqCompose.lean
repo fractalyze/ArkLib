@@ -163,6 +163,29 @@ theorem type_append_lt (v : ℕ) (hv : v < m) (h : v < m + n) :
     (pSpec₁ ++ₚ pSpec₂).Type ⟨v, h⟩ = pSpec₁.Type ⟨v, hv⟩ :=
   append_Type_castAdd (pSpec₂ := pSpec₂) ⟨v, hv⟩
 
+/-- The direction of an appended protocol at a right-injected round is the right component's. -/
+theorem dir_append_natAdd (i : Fin n) :
+    (pSpec₁ ++ₚ pSpec₂).dir (Fin.natAdd m i) = pSpec₂.dir i := by
+  simp [ProtocolSpec.append, Fin.vappend_eq_append, Fin.append_right]
+
+/-- `type_append_lt`'s counterpart at or after the boundary. Unlike the left-hand versions this one
+cannot hand the `natAdd` form straight back: `Fin.natAdd m ⟨v - m, _⟩` has value `m + (v - m)`,
+which is `v` only under `m ≤ v` and so not definitionally, hence the explicit index rewrite. -/
+theorem type_append_ge (v : ℕ) (hm : m ≤ v) (h : v < m + n) :
+    (pSpec₁ ++ₚ pSpec₂).Type ⟨v, h⟩ = pSpec₂.Type ⟨v - m, by omega⟩ := by
+  have hidx : (⟨v, h⟩ : Fin (m + n)) = Fin.natAdd m ⟨v - m, by omega⟩ :=
+    Fin.ext (by simp only [Fin.val_natAdd]; omega)
+  rw [hidx]
+  exact append_Type_natAdd _
+
+/-- `dir_append_lt`'s counterpart at or after the boundary. -/
+theorem dir_append_ge (v : ℕ) (hm : m ≤ v) (h : v < m + n) :
+    (pSpec₁ ++ₚ pSpec₂).dir ⟨v, h⟩ = pSpec₂.dir ⟨v - m, by omega⟩ := by
+  have hidx : (⟨v, h⟩ : Fin (m + n)) = Fin.natAdd m ⟨v - m, by omega⟩ :=
+    Fin.ext (by simp only [Fin.val_natAdd]; omega)
+  rw [hidx]
+  exact dir_append_natAdd _
+
 /-- Transport a left-component transcript into the appended protocol, **pointwise**.
 
 Deliberately not a `cast` of the whole function type: a round induction extends the transcript with
@@ -196,6 +219,21 @@ theorem liftTranscript_concat (v : ℕ) (hv : v < m) (h : v < m + n)
       = Transcript.concat (cast (type_append_lt (pSpec₂ := pSpec₂) v hv h).symm msg)
           (liftTranscript (pSpec₂ := pSpec₂) v (by omega) (by omega) T) :=
   liftTranscript_snoc v hv h T msg
+
+/-- Combine a full `pSpec₁` transcript with a partial `pSpec₂` transcript into a partial transcript
+of the appended protocol, pointwise. The right-region counterpart of `liftTranscript`: once a round
+index passes the boundary the transcript is `pSpec₁`'s entirely plus however much of `pSpec₂` has
+been produced. -/
+def liftTranscriptR (v : ℕ) (hm : m ≤ v) (hvn : v ≤ m + n)
+    (T₁ : pSpec₁.FullTranscript) (T₂ : pSpec₂.Transcript ⟨v - m, by omega⟩) :
+    (pSpec₁ ++ₚ pSpec₂).Transcript ⟨v, by omega⟩ :=
+  fun i =>
+    have hi : (i : ℕ) < v := i.isLt
+    if h : (i : ℕ) < m
+      then cast (type_append_lt (pSpec₁ := pSpec₁) (pSpec₂ := pSpec₂) (i : ℕ) h
+        (by omega)).symm (T₁ ⟨i, h⟩)
+      else cast (type_append_ge (pSpec₁ := pSpec₁) (pSpec₂ := pSpec₂) (i : ℕ) (by omega)
+        (by omega)).symm (T₂ ⟨(i : ℕ) - m, by show (i : ℕ) - m < v - m; omega⟩)
 
 namespace Transcript
 
