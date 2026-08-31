@@ -981,6 +981,14 @@ theorem prvState_gt' (v : ℕ) (hm : m < v) (hvn : v ≤ m + n) :
   simp [Prover.append, Fin.append, Fin.addCases, Fin.cast, Fin.castLT, Fin.tail, Fin.succ, h1]
   try (congr 1; apply Fin.ext; simp; omega)
 
+/-- `prvState_gt'` in the `m + w` indexing a right-region induction uses. Needs `0 < w` for the
+same reason `prvState_gt'` needs `m < v`: at `w = 0` the state is still `P₁`'s. -/
+theorem prvState_add (w : ℕ) (hw : w ≤ n) (hw0 : 0 < w) :
+    (P₁.append P₂).PrvState ⟨m + w, by omega⟩ = P₂.PrvState ⟨w, by omega⟩ := by
+  have h1 : ¬ (m + w < m + 1) := by omega
+  simp [Prover.append, Fin.append, Fin.addCases, Fin.cast, Fin.castLT, Fin.tail, Fin.succ, h1]
+  try (congr 1; apply Fin.ext; simp; omega)
+
 /-- Unfold `runToRound` one round at a raw `Fin.mk` successor index.
 
 `Fin.induction_succ` only fires on an index of the form `Fin.succ j`, and a round induction hands

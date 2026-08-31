@@ -186,6 +186,18 @@ theorem dir_append_ge (v : ℕ) (hm : m ≤ v) (h : v < m + n) :
   rw [hidx]
   exact dir_append_natAdd _
 
+/-- `type_append_ge` with the right-region round written as `m + w` rather than as `v` with `v - m`.
+`Fin.natAdd m ⟨w, _⟩` *is* `⟨m + w, _⟩` definitionally, so unlike `type_append_ge` this needs no
+index rewrite -- which is what makes `m + w` the right way to index a right-region induction. -/
+theorem type_append_add (w : ℕ) (hw : w < n) (h : m + w < m + n) :
+    (pSpec₁ ++ₚ pSpec₂).Type ⟨m + w, h⟩ = pSpec₂.Type ⟨w, hw⟩ :=
+  append_Type_natAdd (pSpec₁ := pSpec₁) ⟨w, hw⟩
+
+/-- `dir_append_ge` in the `m + w` indexing. See `type_append_add`. -/
+theorem dir_append_add (w : ℕ) (hw : w < n) (h : m + w < m + n) :
+    (pSpec₁ ++ₚ pSpec₂).dir ⟨m + w, h⟩ = pSpec₂.dir ⟨w, hw⟩ :=
+  dir_append_natAdd (pSpec₁ := pSpec₁) ⟨w, hw⟩
+
 /-- Transport a left-component transcript into the appended protocol, **pointwise**.
 
 Deliberately not a `cast` of the whole function type: a round induction extends the transcript with
@@ -223,17 +235,20 @@ theorem liftTranscript_concat (v : ℕ) (hv : v < m) (h : v < m + n)
 /-- Combine a full `pSpec₁` transcript with a partial `pSpec₂` transcript into a partial transcript
 of the appended protocol, pointwise. The right-region counterpart of `liftTranscript`: once a round
 index passes the boundary the transcript is `pSpec₁`'s entirely plus however much of `pSpec₂` has
-been produced. -/
-def liftTranscriptR (v : ℕ) (hm : m ≤ v) (hvn : v ≤ m + n)
-    (T₁ : pSpec₁.FullTranscript) (T₂ : pSpec₂.Transcript ⟨v - m, by omega⟩) :
-    (pSpec₁ ++ₚ pSpec₂).Transcript ⟨v, by omega⟩ :=
+been produced.
+
+Indexed by `m + w`, not by `v` with `v - m`: `m + (w + 1)` is definitionally `(m + w) + 1`, so a
+round induction extending this by one never has to normalise its own index. -/
+def liftTranscriptR (w : ℕ) (hw : w ≤ n)
+    (T₁ : pSpec₁.FullTranscript) (T₂ : pSpec₂.Transcript ⟨w, by omega⟩) :
+    (pSpec₁ ++ₚ pSpec₂).Transcript ⟨m + w, by omega⟩ :=
   fun i =>
-    have hi : (i : ℕ) < v := i.isLt
+    have hi : (i : ℕ) < m + w := i.isLt
     if h : (i : ℕ) < m
       then cast (type_append_lt (pSpec₁ := pSpec₁) (pSpec₂ := pSpec₂) (i : ℕ) h
         (by omega)).symm (T₁ ⟨i, h⟩)
       else cast (type_append_ge (pSpec₁ := pSpec₁) (pSpec₂ := pSpec₂) (i : ℕ) (by omega)
-        (by omega)).symm (T₂ ⟨(i : ℕ) - m, by show (i : ℕ) - m < v - m; omega⟩)
+        (by omega)).symm (T₂ ⟨(i : ℕ) - m, by show (i : ℕ) - m < w; omega⟩)
 
 namespace Transcript
 
