@@ -5,11 +5,14 @@ Reduction by replacing every oracle with a commitment and every oracle query wit
 argument. It captures both the original vector-commitment/Merkle-tree construction and the
 Polynomial IOP + Polynomial Commitment pattern used by Plonk and Marlin.
 
-Partly formalized. \texttt{ArkLib/OracleReduction/BCS/Basic.lean} now carries the
-batched protocol specification (\texttt{ProtocolSpec.BCSTransform}) and the
-admissibility obligation of Remark~\ref{rem:bcs_shortness}
-(\texttt{BCS.BatchingAdmissibility}). The reduction-level transform and the security
-statements of Section~\ref{sec:bcs_security} are still to be written.
+Partly formalized, all of it free of \texttt{sorry}.
+\texttt{ArkLib/OracleReduction/BCS/Basic.lean} carries the batched protocol
+specification (\texttt{ProtocolSpec.BCSTransform}) with the structural API for
+\texttt{renameMessage} that writing over a renamed spec requires, the admissibility
+obligation of Remark~\ref{rem:bcs_shortness} (\texttt{BCS.BatchingAdmissibility}), and
+the commit phase of the transform (\texttt{Prover.commitMessages}). Still to be written:
+the opening phase, the assembly of the two, and the security statements of
+Section~\ref{sec:bcs_security}.
 
 \subsection{The transformation}\label{sec:bcs_transform}
 
@@ -33,7 +36,9 @@ statements of Section~\ref{sec:bcs_security} are still to be written.
     \label{def:bcs}
     $\mathsf{BCSTransform}$ sends an oracle reduction $R$ to the reduction that
     \begin{enumerate}
-        \item runs $R$'s prover, sending a commitment in place of each oracle message;
+        \item runs $R$'s prover, sending a commitment in place of each oracle message ---
+            the commit phase, which retains each message and its decommitment for step 3;
+            \lean{Prover.commitMessages}
         \item runs $R$'s oracle verifier to obtain its query list;
         \item runs an opening argument for each query;
         \item accepts iff $R$'s verifier accepts and every opening argument accepts.
@@ -46,32 +51,63 @@ The transform's free choices --- the order of the opening arguments, and whether
 --- are usually presented as optimizations. In this library one of them is not: it decides whether
 the security proof is reachable at all.
 
-\begin{remark}[Sequential openings inherit the composition blocker]
+\begin{remark}[Where the composition obstruction actually sits]
     \label{rem:bcs_sequential_blocked}
-    The natural shape, and the one the commented-out stub sketches, composes the opening arguments
-    with $\ProtocolSpec.\mathsf{append}$, giving $n + \sum_i n^{\mathsf{open}}_i$ rounds. Its
-    security proof then routes through $\mathsf{Verifier.append\_soundness}$ and its knowledge and
-    round-by-round variants.
+    The natural shape, and the one the commented-out stub sketched, composes the opening arguments
+    with $\ProtocolSpec.\mathsf{append}$, giving $n + \sum_i n^{\mathsf{open}}_i$ rounds.
 
-    Those are unproved, and not for want of effort. $(R_1.\mathsf{append}\;R_2).\mathsf{run}$ runs
-    both provers and then both verifiers, whereas running $R_1$ then $R_2$ interleaves
-    $P_1, V_1, P_2, V_2$; justifying the swap of $V_1$ past $P_2$ needs the oracle computation
-    interpreted into a \emph{commutative} monad, which the VCVio refactor has not yet supplied.
+    It is worth being exact about what is unproved, because the obstruction is narrower than
+    ``sequential composition is blocked'' and it is \emph{not} avoided merely by batching.
 
-    So a BCS transform built on sequential openings is blocked on a dependency the transform itself
-    does not need.
+    \begin{itemize}
+        \item \texttt{Verifier.append\_run} is proved, by \texttt{rfl}. The verifier side of a
+            composition is definitional; nothing is open there.
+        \item \texttt{Prover.append\_run} --- running $P_1.\mathsf{append}\;P_2$ equals running
+            $P_1$ then $P_2$ --- is \texttt{sorry} (in
+            \texttt{Composition/\allowbreak Sequential/\allowbreak Append.lean}). This is the
+            single atom everything else rests on: $(R_1.\mathsf{append}\;R_2).\mathsf{run}$ runs both provers and then
+            both verifiers, whereas running $R_1$ then $R_2$ interleaves
+            $P_1, V_1, P_2, V_2$, and justifying the swap wants the oracle computation in a
+            \emph{commutative} monad.
+        \item Consequently \texttt{Reduction.append\_completeness} and the
+            \texttt{Verifier.append\_soundness} family are \texttt{sorry} too --- fourteen in
+            that file.
+        \item The $n$-fold statements in
+            \texttt{Composition/\allowbreak Sequential/\allowbreak General.lean} are
+            \emph{derived} from the single-append ones by induction on the number of phases. They
+            are not an independent difficulty.
+    \end{itemize}
+
+    So the atom is one lemma about one append, on the prover side.
 \end{remark}
 
-\begin{remark}[Homomorphic batching avoids it]
+\begin{remark}[What homomorphic batching actually buys]
     \label{rem:bcs_batched}
     If the commitment scheme is homomorphic, the verifier's queries can be reduced to a single
     opening by taking a random linear combination of the committed messages. The transformed
     protocol is then $\pSpec$ with renamed messages, plus \emph{one} challenge round and
     \emph{one} opening argument --- a fixed, bounded suffix rather than a sum over queries.
 
-    This is worth stating as the primary route rather than the optimization. It removes the
-    dependency on sequential-composition security described in
-    Remark~\ref{rem:bcs_sequential_blocked}.
+    This is worth stating as the primary route rather than the optimization --- but for the
+    right reasons, and \emph{not} because it escapes
+    Remark~\ref{rem:bcs_sequential_blocked}. Both routes bottom out on the same
+    \texttt{Prover.append\_run}. What batching buys is three things:
+
+    \begin{enumerate}
+        \item \textbf{A static arity.} The sequential spec's round count
+            $n + \sum_i n^{\mathsf{open}}_i$ is a sum over the \emph{verifier's query list},
+            which is a runtime value --- the commented-out stub took
+            \texttt{queries : List \ldots} as a parameter for exactly this reason. So the
+            transformed protocol's \emph{type} depends on the execution. Batched, the arity is
+            $n + n^{\mathsf{open}}$, known statically. This is a typing problem, not a proof
+            difficulty, and it is the strongest of the three.
+        \item \textbf{One application instead of an induction.} Batching needs
+            \texttt{Prover.append\_run} once, at a fixed and known suffix, where it could also be
+            discharged by hand. The sequential route needs the \texttt{seqCompose} induction over
+            a list whose length is not known until run time.
+        \item \textbf{A tighter error term.} $\varepsilon + \delta + \eta$ plus one batching
+            term, rather than $\varepsilon + \sum_i \delta_i + \sum_i \eta_i$.
+    \end{enumerate}
 
     For Ajtai the commitment map is linear on the nose. \texttt{Ajtai.Simple.commit} is the
     matrix--vector product $As$, so additivity and scalar-homogeneity are exactly the existing
@@ -159,8 +195,9 @@ the security proof is reachable at all.
 \end{array}
 \]
 
-Under Remark~\ref{rem:bcs_batched} none of these depends on
-$\mathsf{Verifier.append\_soundness}$. Under the sequential route, all three do.
+All three rest on \texttt{Prover.append\_run} (Remark~\ref{rem:bcs_sequential_blocked}) under
+either route; batching does not remove that edge. What it changes is that the edge is used once,
+at a statically known suffix, rather than inside an induction over a runtime query list.
 
 \subsection{Open questions for maintainers}\label{sec:bcs_questions}
 

@@ -195,3 +195,7 @@ ProtocolSpec.BCSTransform
 BCS.BatchingAdmissibility
 BCS.BatchingAdmissibility.ofNoGate
 BCS.BatchingAdmissibility.ofNormBound
+ProtocolSpec.renameMessage_message
+ProtocolSpec.renameMessage_challenge
+Prover.commitMessages
+Prover.CommitState
