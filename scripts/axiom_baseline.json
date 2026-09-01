@@ -188,7 +188,6 @@
   "OutOfDomSmpl.out_of_dom_smpl_1",
   "OutOfDomSmpl.out_of_dom_smpl_2",
   "Plonk.ConstraintSystem.perm",
-  "Prover.append_run",
   "ProximityGap.GrandChallenges.McaLowerWitness.ofJohnsonRangeBound",
   "ProximityGap.H",
   "ProximityGap.H_dvd_evalX_R",

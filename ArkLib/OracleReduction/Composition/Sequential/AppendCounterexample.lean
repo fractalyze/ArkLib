@@ -4,7 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Batzorig Zorigoo
 -/
 
-import ArkLib.OracleReduction.Composition.Sequential.Append
+import ArkLib.OracleReduction.Composition.Sequential.HandlerCommutativity
 
 /-!
 # `Reduction.append_completeness` is false as stated
@@ -154,7 +154,24 @@ theorem append_completeness_false :
         (Set.univ : Set (Unit × Unit)) (Set.univ : Set (Unit × Unit)) (tR₁.append tR₂) (0 + 0) :=
   ⟨tComplete₁, tComplete₂, by simpa using tNotComplete⟩
 
+/-- **The handler is not commutative**, which is what the repair hypothesis must rule out.
+Asking the same query twice from `false` gives `(false, true)` in one order and
+`(true, false)` in the other: this handler reports the order it was called in. -/
+theorem tImpl_not_isCommutative : ¬ QueryImpl.IsCommutative tImpl := by
+  intro hc
+  have h := hc (OracleSpec.query (spec := tOSpec) ())
+    (OracleSpec.query (spec := tOSpec) ()) false
+  rw [show (simulateQ tImpl (do
+        let a ← (OracleSpec.query (spec := tOSpec) () : OracleComp tOSpec Bool)
+        let b ← (OracleSpec.query (spec := tOSpec) () : OracleComp tOSpec Bool)
+        pure (a, b))).run false = (pure ((false, true), true) : ProbComp _) from rfl,
+     show (simulateQ tImpl (do
+        let b ← (OracleSpec.query (spec := tOSpec) () : OracleComp tOSpec Bool)
+        let a ← (OracleSpec.query (spec := tOSpec) () : OracleComp tOSpec Bool)
+        pure (a, b))).run false = (pure ((true, false), true) : ProbComp _) from rfl] at h
+  simp only [evalDist_pure] at h
+  have hx := congrArg (fun d => d ((false, true), true)) h
+  simp at hx
+
 end ArkLib.AppendCounterexample
 
--- No `sorry` reaches this: the counterexample stands on Lean's standard axioms.
-#print axioms ArkLib.AppendCounterexample.append_completeness_false
