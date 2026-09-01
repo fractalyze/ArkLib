@@ -7,6 +7,21 @@ Authors: Batzorig Zorigoo
 import ArkLib.OracleReduction.Composition.Sequential.HandlerCommutativity
 import ArkLib.ToVCVio.EvalDist.CompletenessBound
 
+/-!
+# Repairing `Reduction.append_completeness`
+
+`AppendCounterexample.lean` shows the theorem is false as stated, and
+`HandlerCommutativity.lean` isolates the hypothesis that repairs it. This file holds the
+execution-side groundwork joining the two.
+
+`Reduction.append_run_run` puts the appended reduction's run in sequential form: `P₁, P₂,
+V₁, V₂`. That order is the whole problem — `Reduction.run` runs the entire prover before the
+entire verifier, whereas running `R₁` and then `R₂` interleaves them, and for a handler that
+can report the order it was called in the two differ. `QueryImpl.IsCommutative` is what makes
+them agree, and `OracleComp.one_sub_le_probEvent_bind` is what adds the two completeness
+errors once they do.
+-/
+
 open OracleComp OracleSpec ProtocolSpec
 
 namespace Reduction
