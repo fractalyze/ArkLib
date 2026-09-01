@@ -664,7 +664,18 @@ namespace Reduction
   completeness with respect to `rel₁` and `rel₃`.
 
   The completeness error of the appended reduction is the sum of the individual errors
-  (`completenessError₁ + completenessError₂`). -/
+  (`completenessError₁ + completenessError₂`).
+  **This statement is false, and cannot be proved without an extra hypothesis.**
+  `Reduction.run` runs the whole prover and then the whole verifier, so the appended reduction
+  executes `P₁, P₂, V₁, V₂`, while `h₁` and `h₂` speak about `P₁, V₁` and `P₂, V₂` from a freshly
+  sampled `init`. For a stateful `impl`, `V₁` in the appended run starts from the state `P₂` left
+  behind, and `h₁` does not apply to it. `AppendCounterexample.lean` exhibits two perfectly
+  complete reductions whose append rejects with probability one, `sorry`-free.
+
+  This is what the `TODO` above asks about. It is a different defect from the one
+  `Prover.append_run` had: that was a within-round effect ordering, repaired by reordering
+  `Prover.processRound`; this is what `Reduction.append` means, so the repair is a hypothesis
+  (statelessness of `impl`, or the commutative-monad condition the `TODO` sketches). -/
 theorem append_completeness
     (R₁ : Reduction oSpec Stmt₁ Wit₁ Stmt₂ Wit₂ pSpec₁)
     (R₂ : Reduction oSpec Stmt₂ Wit₂ Stmt₃ Wit₃ pSpec₂)
