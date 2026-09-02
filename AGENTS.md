@@ -41,6 +41,11 @@ Start with [`README.md`](README.md) for project overview.
   `dependency_graphs/`, or `home_page/docs/`.
 - Pre-existing `sorry` blocks exist in active formalizations; distinguish existing gaps from new
   regressions.
+- `OracleComp` is a `PFunctor.FreeM`, so `rw`/`simp` routinely fail to match a `>>=` in its terms
+  ("did not find an occurrence of `?x >>= ?f >>= ?g`") even when the bind is plainly there. Reach
+  for `Eq.trans (bind_assoc _ _ _) …`, `congrArg evalDist h`, or `bind_congr`, which unify up to
+  defeq. The same applies to `simulateQ_bind`; `Functor.map_map` additionally needs its function
+  arguments given explicitly, since the higher-order unification fails silently.
 - If a PR changes commands, repo structure, generated outputs, or the blueprint/citation
   workflow, update the matching page in [`docs/wiki/`](docs/wiki/README.md) in the same PR.
 - Promote recurring agent learnings into [`docs/wiki/`](docs/wiki/README.md); do not let stable
