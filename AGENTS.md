@@ -46,6 +46,15 @@ Start with [`README.md`](README.md) for project overview.
   for `Eq.trans (bind_assoc _ _ _) …`, `congrArg evalDist h`, or `bind_congr`, which unify up to
   defeq. The same applies to `simulateQ_bind`; `Functor.map_map` additionally needs its function
   arguments given explicitly, since the higher-order unification fails silently.
+- Round indices in a composed protocol appear as `r.succ`, `r.castSucc`, `⟨v, _⟩`, `Fin.last`,
+  `↑(ChallengeIdx.inl i)` — all definitionally equal, none syntactically. `rw` matches
+  syntactically and checks its motive at `instances` transparency, where `Fin.castSucc` /
+  `castAdd` / `castLE` do not unfold, so it fails on all of them. Either state the lemma in the
+  `⟨v, _⟩` form and apply it with `exact`/`refine`, which check defeq at default transparency, or
+  introduce a `have` written in the *goal's* index shape, prove it by the general lemma, and `rw`
+  that. Two follow-on traps: `by omega` cannot see through `↑⟨v, _⟩`, so state such side goals as
+  `show v ≤ m by omega`; and `∃ w, P ⟨v, by omega⟩ … w` infers `w`'s type from the postponed
+  `by omega` proof rather than the witness type, so ascribe the binder.
 - If a PR changes commands, repo structure, generated outputs, or the blueprint/citation
   workflow, update the matching page in [`docs/wiki/`](docs/wiki/README.md) in the same PR.
 - Promote recurring agent learnings into [`docs/wiki/`](docs/wiki/README.md); do not let stable
