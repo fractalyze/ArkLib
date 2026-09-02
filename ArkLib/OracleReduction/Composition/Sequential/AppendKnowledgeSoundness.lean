@@ -278,6 +278,44 @@ theorem ksExecInstr_run_eq (verify : Stmt₁ → pSpec₁.FullTranscript → Stm
     refine Eq.trans (OptionT.run_liftM_bind _ _) (bind_congr fun w₂? => ?_)
     exact OptionT.run_liftM_bind _ _
 
+/-- The post-cut tail as a computation of the *second* protocol's spec: the second reduction's
+run, then both extractors. Everything after the cut only ever queries `oSpec` and `pSpec₂`'s
+challenges, so it factors through that spec -- which is what lets
+`Reduction.evalDist_simulateQ_liftM_right` hand it to the second component's handler. -/
+def ksTailRight (verify : Stmt₁ → pSpec₁.FullTranscript → Stmt₂)
+    (E₁ : Extractor.Straightline oSpec Stmt₁ Wit₁ Wit₂ pSpec₁)
+    (E₂ : Extractor.Straightline oSpec Stmt₂ Wit₂ Wit₃ pSpec₂)
+    (V₂ : Verifier oSpec Stmt₂ Stmt₃ pSpec₂)
+    (P : Prover oSpec Stmt₁ Wit₁ Stmt₃ Wit₃ (pSpec₁ ++ₚ pSpec₂)) (stmtIn : Stmt₁)
+    (x : pSpec₁.FullTranscript × Stmt₂ × Reduction.CutState P) (s₂ : Stmt₂) :
+    OracleComp (oSpec + [pSpec₂.Challenge]ₒ)
+      (Option ((Stmt₁ × Option Wit₁ × Stmt₃ × Wit₃) × Stmt₂ × Option Wit₂)) :=
+  ((Reduction.run s₂ (cast (Prover.prvState_cut_eq P) x.2.2)
+      (Reduction.mk (P.dropLeft (Stmt₂ := Stmt₂)) V₂)).run) >>= fun o =>
+    Option.elim o (pure none) fun q =>
+      liftM (E₂ s₂ q.1.2.2 q.1.1 [] []).run >>= fun w₂? =>
+        liftM (w₂?.elim (pure none) fun w₂ => (E₁ stmtIn w₂ x.1 [] []).run) >>= fun w₁? =>
+          pure (some ((stmtIn, w₁?, q.2, q.1.2.2), s₂, w₂?))
+
+/-- On the branch where the first verifier accepted with `s₂`, the post-cut tail is exactly its
+second-protocol form, lifted. -/
+theorem ksTail_eq (verify : Stmt₁ → pSpec₁.FullTranscript → Stmt₂)
+    (E₁ : Extractor.Straightline oSpec Stmt₁ Wit₁ Wit₂ pSpec₁)
+    (E₂ : Extractor.Straightline oSpec Stmt₂ Wit₂ Wit₃ pSpec₂)
+    (V₂ : Verifier oSpec Stmt₂ Stmt₃ pSpec₂)
+    (P : Prover oSpec Stmt₁ Wit₁ Stmt₃ Wit₃ (pSpec₁ ++ₚ pSpec₂)) (stmtOut : Stmt₂)
+    (stmtIn : Stmt₁) (x : pSpec₁.FullTranscript × Stmt₂ × Reduction.CutState P) (s₂ : Stmt₂)
+    (hs₂ : s₂ = verify stmtIn x.1) :
+    ksTail verify E₁ E₂ V₂ P stmtOut stmtIn (x, some s₂)
+      = liftM (ksTailRight verify E₁ E₂ V₂ P stmtIn x s₂) := by
+  rw [ksTail, Reduction.soundPhase₂_eq, ksTailRight, liftM_bind, bind_map_left]
+  refine bind_congr fun o => ?_
+  cases o with
+  | none => simp [ksExtractTail]
+  | some q =>
+    simp only [ksExtractTail, Option.map_some, Option.elim, FullTranscript.append_fst,
+      FullTranscript.append_snd, ← hs₂, liftM_bind, Prover.liftM_liftM_base_right, liftM_pure]
+
 variable {σ : Type} [∀ i, SampleableType (pSpec₁.Challenge i)]
   [∀ i, SampleableType (pSpec₂.Challenge i)]
   {impl : QueryImpl oSpec (StateT σ ProbComp)} {init : ProbComp σ}

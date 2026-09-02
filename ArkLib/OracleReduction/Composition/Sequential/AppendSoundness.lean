@@ -179,6 +179,33 @@ theorem probEvent_soundPhase₁_eq (stmt : Stmt₁) (wit : Wit₁) (s : σ) :
 
 variable {lang₃ : Set Stmt₃}
 
+omit [∀ i, SampleableType (pSpec₁.Challenge i)] [∀ i, SampleableType (pSpec₂.Challenge i)] in
+/-- **The second phase is the second reduction's run**, on the branch where `V₁` accepted with
+`s₂`, up to the transcript the appended run carries forward. -/
+theorem soundPhase₂_eq (x : pSpec₁.FullTranscript × Stmt₂ × CutState P) (s₂ : Stmt₂) :
+    soundPhase₂ P V₂ stmtOut (x, some s₂)
+      = (Option.map (fun q : (pSpec₂.FullTranscript × Stmt₃ × Wit₃) × Stmt₃ =>
+            ((x.1 ++ₜ q.1.1, q.1.2.1, q.1.2.2), q.2))) <$>
+          (liftM ((Reduction.run s₂ (cast (Prover.prvState_cut_eq P) x.2.2)
+              (Reduction.mk (P.dropLeft (Stmt₂ := Stmt₂)) V₂)).run) :
+            Comp oSpec pSpec₁ pSpec₂ _) := by
+  unfold soundPhase₂
+  rw [Prover.dropLeft_run_congr P stmtOut s₂, liftM_run_right_eq_map]
+  simp only [Option.elim]
+
+omit [∀ i, SampleableType (pSpec₁.Challenge i)] [∀ i, SampleableType (pSpec₂.Challenge i)] in
+/-- **The first phase, for a deterministic first verifier.** `V₁` never fails and its output is a
+function of the statement and the transcript, so the phase is just the first half's run with that
+value attached. -/
+theorem soundPhase₁_det (verify : Stmt₁ → pSpec₁.FullTranscript → Stmt₂)
+    (hV₁ : V₁ = ⟨fun s t => pure (verify s t)⟩) (stmt : Stmt₁) (wit : Wit₁) :
+    soundPhase₁ P V₁ stmtOut stmt wit
+      = (fun x => (x, some (verify stmt x.1))) <$>
+          (liftM ((P.takeLeft stmtOut).run stmt wit) : Comp oSpec pSpec₁ pSpec₂ _) := by
+  unfold soundPhase₁
+  subst hV₁
+  simp only [OptionT.run_pure, liftM_pure, map_pure, bind_pure_comp]
+
 /-- **The second phase's bad event is `V₂`'s soundness event**, on the branch where `V₁` accepted
 with `s₂`. The adversary's second half is run on the statement `takeLeft` reported rather than on
 `s₂`, but `Prover.dropLeft_run_congr` says it never looks. -/
@@ -192,16 +219,7 @@ theorem probEvent_soundPhase₂_eq
           OptionT.mk (StateT.run' (simulateQ (pImplOf pSpec₂ impl)
             (Reduction.run s₂ (cast (Prover.prvState_cut_eq P) x.2.2)
               (Reduction.mk (P.dropLeft (Stmt₂ := Stmt₂)) V₂)).run) s₁)] := by
-  have hphase : soundPhase₂ P V₂ stmtOut (x, some s₂)
-      = (Option.map (fun q : (pSpec₂.FullTranscript × Stmt₃ × Wit₃) × Stmt₃ =>
-            ((x.1 ++ₜ q.1.1, q.1.2.1, q.1.2.2), q.2))) <$>
-          (liftM ((Reduction.run s₂ (cast (Prover.prvState_cut_eq P) x.2.2)
-              (Reduction.mk (P.dropLeft (Stmt₂ := Stmt₂)) V₂)).run) :
-            Comp oSpec pSpec₁ pSpec₂ _) := by
-    unfold soundPhase₂
-    rw [Prover.dropLeft_run_congr P stmtOut s₂, liftM_run_right_eq_map]
-    simp only [Option.elim]
-  rw [hphase, simulateQ_map, stateT_run'_map, probEvent_map, OptionT.probEvent_mk,
+  rw [soundPhase₂_eq, simulateQ_map, stateT_run'_map, probEvent_map, OptionT.probEvent_mk,
     probEvent_of_evalDist_eq (evalDist_stateT_run'_congr
       (evalDist_simulateQ_liftM_right (impl := impl) (pSpec₁ := pSpec₁)
         (Reduction.run s₂ (cast (Prover.prvState_cut_eq P) x.2.2)
