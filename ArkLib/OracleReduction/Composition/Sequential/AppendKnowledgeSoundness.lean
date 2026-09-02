@@ -138,6 +138,27 @@ def ksBad (relIn : Set (StmtIn × WitIn)) (relOut : Set (StmtOut × WitOut)) :
     StmtIn × Option WitIn × StmtOut × WitOut → Prop :=
   fun p => (∀ w ∈ p.2.1, (p.1, w) ∉ relIn) ∧ (p.2.2.1, p.2.2.2) ∈ relOut
 
+/-- The log-free game, with the reduction's failure bookkeeping pulled out into one
+`Option.elim`. The extractor's lift is a composite one; `monadLift_liftM_OptionT` is what puts it
+in the two-step form the `OptionT.run` lemmas match. -/
+theorem ksExec_run_eq (E : Extractor.Straightline oSpec StmtIn WitIn WitOut pSpec)
+    (V : Verifier oSpec StmtIn StmtOut pSpec)
+    (P : Prover oSpec StmtIn WitIn StmtOut WitOut pSpec) (stmtIn : StmtIn) (witIn : WitIn) :
+    (ksExec E V P stmtIn witIn).run
+      = ((Reduction.mk P V).run stmtIn witIn).run >>= fun o =>
+          Option.elim o (pure none) fun r =>
+            (liftM (E stmtIn r.1.2.2 r.1.1 [] []).run :
+                OracleComp (oSpec + [pSpec.Challenge]ₒ) _) >>= fun w? =>
+              pure (some (stmtIn, w?, r.2, r.1.2.2)) := by
+  unfold ksExec
+  rw [OptionT.run_bind]
+  refine bind_congr fun o => ?_
+  cases o with
+  | none => simp [Option.elimM]
+  | some r =>
+    simp only [Option.elimM, Option.elim, ← monadLift_liftM_OptionT]
+    exact Eq.trans (OptionT.run_liftM_bind _ _) (bind_congr fun w? => OptionT.run_pure _)
+
 /-- **The knowledge-soundness game, with the logs gone.** For a log-independent extractor the game
 only ever *produces* its logs, so the whole run can be taken log-free -- which is what puts it
 back in reach of the `Reduction.run` machinery the soundness composition is built on. -/
@@ -297,6 +318,14 @@ def ksTailRight (verify : Stmt₁ → pSpec₁.FullTranscript → Stmt₂)
         liftM (w₂?.elim (pure none) fun w₂ => (E₁ stmtIn w₂ x.1 [] []).run) >>= fun w₁? =>
           pure (some ((stmtIn, w₁?, q.2, q.1.2.2), s₂, w₂?))
 
+/-- Running the second component's reduction against the state-baked second half is running it
+against `dropLeft` from that state. -/
+theorem run_mk_dropLeftFrom (P : Prover oSpec Stmt₁ Wit₁ Stmt₃ Wit₃ (pSpec₁ ++ₚ pSpec₂))
+    (w : P.PrvState (Prover.rightIdx m (0 : Fin (n + 1))))
+    (V₂ : Verifier oSpec Stmt₂ Stmt₃ pSpec₂) (s₂ : Stmt₂) (wit : Wit₂) :
+    Reduction.run s₂ wit (Reduction.mk (Prover.dropLeftFrom P w) V₂)
+      = Reduction.run s₂ w (Reduction.mk (P.dropLeft (Stmt₂ := Stmt₂)) V₂) := rfl
+
 /-- On the branch where the first verifier accepted with `s₂`, the post-cut tail is exactly its
 second-protocol form, lifted. -/
 theorem ksTail_eq (verify : Stmt₁ → pSpec₁.FullTranscript → Stmt₂)
@@ -342,6 +371,51 @@ theorem evalDist_ksExecInstr_split
     evalDist_bind, evalDist_bind, bind_assoc]
   refine bind_congr fun p => ?_
   rw [ksTail, QueryImpl.evalDist_simulateQ_run_bind]
+
+open scoped NNReal in
+/-- **The `ε₂` bound, after the cut.** Everything past the cut is `V₂`'s knowledge-soundness game
+against the adversary's second half, with the first extractor appended -- which can only lose mass
+and whose result this event does not read. -/
+theorem probEvent_ksTailRight_le [Nonempty Wit₂]
+    {E₂ : Extractor.Straightline oSpec Stmt₂ Wit₂ Wit₃ pSpec₂} (hE₂ : E₂.IsLogIndependent)
+    (verify : Stmt₁ → pSpec₁.FullTranscript → Stmt₂)
+    (E₁ : Extractor.Straightline oSpec Stmt₁ Wit₁ Wit₂ pSpec₁)
+    (V₂ : Verifier oSpec Stmt₂ Stmt₃ pSpec₂)
+    (P : Prover oSpec Stmt₁ Wit₁ Stmt₃ Wit₃ (pSpec₁ ++ₚ pSpec₂)) (stmtIn : Stmt₁)
+    {ε₂ : ℝ≥0} (h₂ : ∀ s : σ, V₂.knowledgeSoundnessWith (pure s) impl rel₂ rel₃ E₂ ε₂)
+    (x : pSpec₁.FullTranscript × Stmt₂ × Reduction.CutState P) (s₂ : Stmt₂) (s₁ : σ) :
+    Pr[ fun o => Option.elim o False fun p =>
+          ksBad rel₂ rel₃ (p.2.1, p.2.2, p.1.2.2.1, p.1.2.2.2)
+      | StateT.run' (simulateQ (Reduction.pImplOf pSpec₂ impl)
+          (ksTailRight verify E₁ E₂ V₂ P stmtIn x s₂)) s₁] ≤ ε₂ := by
+  classical
+  have hc := (knowledgeSoundnessWith_iff_ksExec hE₂).mp (h₂ s₁) s₂ (Classical.arbitrary Wit₂)
+    (Prover.dropLeftFrom P (cast (Prover.prvState_cut_eq P) x.2.2))
+  rw [pure_bind, OptionT.probEvent_mk, ksExec_run_eq, run_mk_dropLeftFrom] at hc
+  refine le_trans ?_ hc
+  rw [ksTailRight, Reduction.stateT_run'_eq, Reduction.stateT_run'_eq]
+  simp only [simulateQ_bind, StateT.run_bind]
+  rw [probEvent_map, probEvent_map]
+  simp only [Reduction.pImplOf, probEvent_bind_eq_tsum]
+  refine ENNReal.tsum_le_tsum fun q => mul_le_mul' le_rfl ?_
+  cases hq : q.1 with
+  | none =>
+    simp only [hq, Option.elim, simulateQ_pure, StateT.run_pure]
+    rw [probEvent_pure, probEvent_pure]
+    simp
+  | some r =>
+    simp only [hq, Option.elim, simulateQ_bind, StateT.run_bind]
+    rw [probEvent_bind_eq_tsum]
+    conv_rhs => rw [probEvent_bind_eq_tsum]
+    refine ENNReal.tsum_le_tsum fun w => mul_le_mul' le_rfl ?_
+    by_cases hb : ksBad rel₂ rel₃ (s₂, w.1, r.2, r.1.2.2)
+    · refine le_trans probEvent_le_one (le_of_eq ?_)
+      simp only [simulateQ_pure, StateT.run_pure]
+      rw [probEvent_pure]
+      simp [hb]
+    · simp only [← bind_pure_comp, simulateQ_map, StateT.run_map, probEvent_map,
+        simulateQ_pure, StateT.run_pure, probEvent_pure, Function.comp, Option.elim]
+      simp [hb]
 
 /-! The composition theorem itself is not here yet: what is above is the shape it needs -- the
 game taken log-free, instrumented with the two values the union bound splits on, and split at the

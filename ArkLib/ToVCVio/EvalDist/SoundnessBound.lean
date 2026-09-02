@@ -63,4 +63,13 @@ lemma probEvent_le_add_split {mx : ProbComp α} (P Q : α → Prop) :
   refine ENNReal.tsum_le_tsum fun a => ?_
   by_cases hQ : Q a <;> by_cases hP : P a <;> simp [hQ, hP]
 
+
+/-- **Comparing two binds with a common prefix.** Pointwise domination of the continuations
+survives the bind. Used to replace a computation's tail by a longer or shorter one whose event is
+at least as likely. -/
+lemma probEvent_bind_le_bind {mx : ProbComp α} {f g : α → ProbComp β} {p q : β → Prop}
+    (h : ∀ a, Pr[ p | f a] ≤ Pr[ q | g a]) : Pr[ p | mx >>= f] ≤ Pr[ q | mx >>= g] := by
+  rw [probEvent_bind_eq_tsum, probEvent_bind_eq_tsum]
+  exact ENNReal.tsum_le_tsum fun a => mul_le_mul' le_rfl (h a)
+
 end OracleComp

@@ -297,4 +297,24 @@ game runs it on the *verifier*'s output statement. -/
 theorem dropLeft_run_congr (s s' : Stmt₂) (w : P.PrvState (rightIdx m (0 : Fin (n + 1)))) :
     Prover.run s w (P.dropLeft) = Prover.run s' w (P.dropLeft) := rfl
 
+
+/-- **The second half, started from a fixed state at the cut.** `dropLeft` takes that state as its
+input *witness*, which is what the soundness game -- quantifying over witness types -- allows. The
+*knowledge*-soundness game fixes the witness type instead, so there the state has to be baked into
+`input`. Every round behaves as `dropLeft`'s. -/
+def dropLeftFrom {S W : Type} (P : Prover oSpec Stmt₁ Wit₁ Stmt₃ Wit₃ (pSpec₁ ++ₚ pSpec₂))
+    (w : P.PrvState (rightIdx m (0 : Fin (n + 1)))) :
+    Prover oSpec S W Stmt₃ Wit₃ pSpec₂ where
+  PrvState := fun j => P.PrvState (rightIdx m j)
+  input := fun _ => w
+  sendMessage := (P.dropLeft (Stmt₂ := S)).sendMessage
+  receiveChallenge := (P.dropLeft (Stmt₂ := S)).receiveChallenge
+  output := (P.dropLeft (Stmt₂ := S)).output
+
+/-- Running the state-baked form is running `dropLeft` from that state. Definitional: the only
+field that differs is `input`, and both hand the same state to round zero. -/
+theorem dropLeftFrom_run {S W : Type} (P : Prover oSpec Stmt₁ Wit₁ Stmt₃ Wit₃ (pSpec₁ ++ₚ pSpec₂))
+    (w : P.PrvState (rightIdx m (0 : Fin (n + 1)))) (s : S) (wit : W) (s' : Stmt₂) :
+    Prover.run s wit (dropLeftFrom P w) = Prover.run s' w (P.dropLeft (Stmt₂ := Stmt₂)) := rfl
+
 end Prover
