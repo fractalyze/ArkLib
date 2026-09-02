@@ -417,6 +417,55 @@ theorem probEvent_ksTailRight_le [Nonempty Wit₂]
         simulateQ_pure, StateT.run_pure, probEvent_pure, Function.comp, Option.elim]
       simp [hb]
 
+open scoped NNReal in
+/-- **The `ε₂` half of the union bound.** On the runs where `E₂` produced no witness for `rel₂`,
+the appended game is `V₂`'s knowledge-soundness game against the adversary's second half. -/
+theorem probEvent_ksExecInstr_le_two [Nonempty Wit₂]
+    (hcomm : (Reduction.pImplOf (pSpec₁ ++ₚ pSpec₂) impl).IsCommutative)
+    (verify : Stmt₁ → pSpec₁.FullTranscript → Stmt₂)
+    (E₁ : Extractor.Straightline oSpec Stmt₁ Wit₁ Wit₂ pSpec₁)
+    {E₂ : Extractor.Straightline oSpec Stmt₂ Wit₂ Wit₃ pSpec₂} (hE₂ : E₂.IsLogIndependent)
+    (V₁ : Verifier oSpec Stmt₁ Stmt₂ pSpec₁) (hV₁ : V₁ = ⟨fun s t => pure (verify s t)⟩)
+    (V₂ : Verifier oSpec Stmt₂ Stmt₃ pSpec₂)
+    (P : Prover oSpec Stmt₁ Wit₁ Stmt₃ Wit₃ (pSpec₁ ++ₚ pSpec₂)) (stmtOut : Stmt₂)
+    (stmtIn : Stmt₁) (witIn : Wit₁) {ε₂ : ℝ≥0}
+    (h₂ : ∀ s : σ, V₂.knowledgeSoundnessWith (pure s) impl rel₂ rel₃ E₂ ε₂) :
+    Pr[ fun a => ((fun o => Option.elim o False (ksBad rel₁ rel₃)) ∘ Option.map Prod.fst) a
+          ∧ ¬ Option.elim a False fun p => ∃ w₂ ∈ p.2.2, (p.2.1, w₂) ∈ rel₂
+      | init >>= fun s => StateT.run' (simulateQ (Reduction.pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+          (ksExecInstr verify E₁ E₂ V₁ V₂ P stmtIn witIn).run) s] ≤ ε₂ := by
+  classical
+  have hmono : ∀ a : Option ((Stmt₁ × Option Wit₁ × Stmt₃ × Wit₃) × Stmt₂ × Option Wit₂),
+      (((fun o => Option.elim o False (ksBad rel₁ rel₃)) ∘ Option.map Prod.fst) a
+          ∧ ¬ Option.elim a False fun p => ∃ w₂ ∈ p.2.2, (p.2.1, w₂) ∈ rel₂) →
+        Option.elim a False fun p =>
+          ksBad rel₂ rel₃ (p.2.1, p.2.2, p.1.2.2.1, p.1.2.2.2) := by
+    rintro (_ | p) ⟨h, h'⟩
+    · exact h
+    · exact ⟨fun w hw hmem => h' ⟨w, hw, hmem⟩, h.2⟩
+  refine le_trans (probEvent_mono fun a _ ha => hmono a ha) ?_
+  have hsplit : 𝒟[init >>= fun s => StateT.run (simulateQ
+        (Reduction.pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+        (ksExecInstr verify E₁ E₂ V₁ V₂ P stmtIn witIn).run) s]
+      = 𝒟[init >>= fun s => (StateT.run (simulateQ
+            (Reduction.pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+            (Reduction.soundPhase₁ P V₁ stmtOut stmtIn witIn)) s >>= fun p =>
+          StateT.run (simulateQ (Reduction.pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+            (ksTail verify E₁ E₂ V₂ P stmtOut stmtIn p.1)) p.2)] := by
+    rw [evalDist_bind, evalDist_bind]
+    exact congrArg _ (funext fun s =>
+      evalDist_ksExecInstr_split hcomm verify E₁ E₂ V₁ V₂ P stmtOut stmtIn witIn s)
+  simp only [Reduction.stateT_run'_eq, ← map_bind, probEvent_map]
+  rw [probEvent_of_evalDist_eq hsplit]
+  simp only [Reduction.soundPhase₁_det P V₁ stmtOut verify hV₁ stmtIn witIn, simulateQ_map,
+    StateT.run_map, bind_map_left, ← bind_assoc]
+  refine probEvent_bind_le_of_forall_le fun q _ => ?_
+  rw [ksTail_eq verify E₁ E₂ V₂ P stmtOut stmtIn q.1 (verify stmtIn q.1.1) rfl,
+    ← probEvent_map, ← Reduction.stateT_run'_eq, probEvent_of_evalDist_eq (Reduction.evalDist_stateT_run'_congr
+      (Reduction.evalDist_simulateQ_liftM_right (impl := impl) (pSpec₁ := pSpec₁)
+        (ksTailRight verify E₁ E₂ V₂ P stmtIn q.1 (verify stmtIn q.1.1)) q.2))]
+  exact probEvent_ksTailRight_le hE₂ verify E₁ V₂ P stmtIn h₂ q.1 _ q.2
+
 /-! The composition theorem itself is not here yet: what is above is the shape it needs -- the
 game taken log-free, instrumented with the two values the union bound splits on, and split at the
 cut. What remains is the two branch bounds, `ε₂` from `h₂` against the adversary's second half and
