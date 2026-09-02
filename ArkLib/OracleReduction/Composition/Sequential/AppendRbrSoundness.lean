@@ -410,3 +410,41 @@ theorem append_rbrSoundness_of_pure [Nonempty Stmt₂]
       exact hS₂ (verify stmt p.1) hmem _ _ _ P.dropLeft i₂
 
 end Verifier
+section OracleProtocol
+
+variable {ιₛ₁ : Type} {OStmt₁ : ιₛ₁ → Type} [Oₛ₁ : ∀ i, OracleInterface (OStmt₁ i)]
+  {ιₛ₂ : Type} {OStmt₂ : ιₛ₂ → Type} [Oₛ₂ : ∀ i, OracleInterface (OStmt₂ i)]
+  {ιₛ₃ : Type} {OStmt₃ : ιₛ₃ → Type} [Oₛ₃ : ∀ i, OracleInterface (OStmt₃ i)]
+  [Oₘ₁ : ∀ i, OracleInterface (pSpec₁.Message i)] [Oₘ₂ : ∀ i, OracleInterface (pSpec₂.Message i)]
+  [∀ i, SampleableType (pSpec₁.Challenge i)] [∀ i, SampleableType (pSpec₂.Challenge i)]
+  {σ : Type} {init : ProbComp σ} {impl : QueryImpl oSpec (StateT σ ProbComp)}
+  {lang₁ : Set (Stmt₁ × ∀ i, OStmt₁ i)} {lang₂ : Set (Stmt₂ × ∀ i, OStmt₂ i)}
+  {lang₃ : Set (Stmt₃ × ∀ i, OStmt₃ i)}
+
+namespace OracleVerifier
+
+open scoped NNReal in
+/-- Sequential composition preserves round-by-round soundness for oracle verifiers, for a
+deterministic first verifier and a stateless handler. The oracle-side counterpart of
+`Verifier.append_rbrSoundness_of_pure`; round-by-round soundness of an oracle verifier is by
+definition that of the verifier underneath it, so this is that theorem plus
+`OracleVerifier.append_toVerifier`. -/
+theorem append_rbrSoundness_of_pure [Nonempty (Stmt₂ × ∀ i, OStmt₂ i)]
+    (hst : impl.IsStateless) (hinit : Pr[⊥ | init] = 0)
+    (V₁ : OracleVerifier oSpec Stmt₁ OStmt₁ Stmt₂ OStmt₂ pSpec₁)
+    (V₂ : OracleVerifier oSpec Stmt₂ OStmt₂ Stmt₃ OStmt₃ pSpec₂)
+    (verify : (Stmt₁ × ∀ i, OStmt₁ i) → pSpec₁.FullTranscript → (Stmt₂ × ∀ i, OStmt₂ i))
+    (hVerify : V₁.toVerifier = ⟨fun stmt tr => pure (verify stmt tr)⟩)
+    {ε₁ : pSpec₁.ChallengeIdx → ℝ≥0} {ε₂ : pSpec₂.ChallengeIdx → ℝ≥0}
+    (h₁ : V₁.rbrSoundness init impl lang₁ lang₂ ε₁)
+    (h₂ : V₂.rbrSoundness init impl lang₂ lang₃ ε₂) :
+      (V₁.append V₂).rbrSoundness init impl lang₁ lang₃
+        (Sum.elim ε₁ ε₂ ∘ ChallengeIdx.sumEquiv.symm) := by
+  unfold rbrSoundness
+  convert Verifier.append_rbrSoundness_of_pure hst hinit V₁.toVerifier V₂.toVerifier verify
+    hVerify h₁ h₂
+  simp only [append_toVerifier]
+
+end OracleVerifier
+
+end OracleProtocol
