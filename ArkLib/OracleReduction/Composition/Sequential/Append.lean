@@ -681,7 +681,14 @@ theorem append_rbrSoundness {lang₁ : Set Stmt₁} {lang₂ : Set Stmt₂} {lan
 /-- If two verifiers satisfy round-by-round knowledge soundness with compatible relations and
     respective RBR knowledge errors, then their sequential composition also satisfies
     round-by-round knowledge soundness.
-    The RBR knowledge error of the appended verifier extends the individual errors appropriately. -/
+    The RBR knowledge error of the appended verifier extends the individual errors appropriately.
+
+`Verifier.append_rbrKnowledgeSoundness_of_pure` in `AppendRbrKnowledgeSoundness.lean` proves this
+for a deterministic first verifier and a stateless handler. Whether it holds in *this* generality is
+open, and the obstruction is the same as for `append_rbrSoundness`: past the cut both the composed
+extractor and the composed knowledge state function have to name the statement the first verifier
+reported, at every round and as a function of the transcript alone, which a randomized `V₁` does not
+provide. -/
 theorem append_rbrKnowledgeSoundness
     (V₁ : Verifier oSpec Stmt₁ Stmt₂ pSpec₁)
     (V₂ : Verifier oSpec Stmt₂ Stmt₃ pSpec₂)
