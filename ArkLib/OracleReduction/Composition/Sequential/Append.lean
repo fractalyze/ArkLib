@@ -677,16 +677,10 @@ end Reduction
 
 namespace Verifier
 
-/-- If two verifiers satisfy soundness with compatible languages and respective soundness errors,
-    then their sequential composition also satisfies soundness.
-    The soundness error of the appended verifier is the sum of the individual errors. -/
-theorem append_soundness {lang₁ : Set Stmt₁} {lang₂ : Set Stmt₂} {lang₃ : Set Stmt₃}
-    (V₁ : Verifier oSpec Stmt₁ Stmt₂ pSpec₁) (V₂ : Verifier oSpec Stmt₂ Stmt₃ pSpec₂)
-    {soundnessError₁ soundnessError₂ : ℝ≥0}
-    (h₁ : V₁.soundness init impl lang₁ lang₂ soundnessError₁)
-    (h₂ : V₂.soundness init impl lang₂ lang₃ soundnessError₂) :
-      (V₁.append V₂).soundness init impl lang₁ lang₃ (soundnessError₁ + soundnessError₂) := by
-  sorry
+/-! `Verifier.append_soundness` used to live here, admitted. It is now proved in
+`AppendSoundness.lean`, where the hypotheses it needs -- a commutative handler, or a stateless
+one, and an `init` that never fails -- are in scope, along with the prover splitting that lets
+an arbitrary adversary be taken apart into the two component games. -/
 
 /-- If two verifiers satisfy knowledge soundness with compatible relations and respective knowledge
     errors, then their sequential composition also satisfies knowledge soundness.
@@ -764,19 +758,8 @@ namespace OracleVerifier
 variable {lang₁ : Set (Stmt₁ × (∀ i, OStmt₁ i))} {lang₂ : Set (Stmt₂ × (∀ i, OStmt₂ i))}
     {lang₃ : Set (Stmt₃ × (∀ i, OStmt₃ i))}
 
-/-- If two oracle verifiers satisfy soundness with compatible languages and respective soundness
-    errors, then their sequential composition also satisfies soundness.
-    The soundness error of the appended verifier is the sum of the individual errors. -/
-theorem append_soundness
-    (V₁ : OracleVerifier oSpec Stmt₁ OStmt₁ Stmt₂ OStmt₂ pSpec₁)
-    (V₂ : OracleVerifier oSpec Stmt₂ OStmt₂ Stmt₃ OStmt₃ pSpec₂)
-    {soundnessError₁ soundnessError₂ : ℝ≥0}
-    (h₁ : V₁.soundness init impl lang₁ lang₂ soundnessError₁)
-    (h₂ : V₂.soundness init impl lang₂ lang₃ soundnessError₂) :
-      (V₁.append V₂).soundness init impl lang₁ lang₃ (soundnessError₁ + soundnessError₂) := by
-  unfold soundness
-  convert Verifier.append_soundness V₁.toVerifier V₂.toVerifier h₁ h₂
-  simp only [append_toVerifier]
+/-! `OracleVerifier.append_soundness` moved to `AppendSoundness.lean` with the `Verifier`
+theorem it wraps. -/
 
 /-- If two oracle verifiers satisfy knowledge soundness with compatible relations and respective
     knowledge errors, then their sequential composition also satisfies knowledge soundness.

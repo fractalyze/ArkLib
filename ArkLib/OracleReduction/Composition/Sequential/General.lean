@@ -4,7 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Quang Dao
 -/
 
-import ArkLib.OracleReduction.Composition.Sequential.AppendCompleteness
+import ArkLib.OracleReduction.Composition.Sequential.AppendSoundness
 
 /-!
   # Sequential Composition of Many Oracle Reductions
@@ -386,7 +386,7 @@ namespace Verifier
 /-- If all verifiers in a sequence satisfy soundness with respective soundness errors, then their
     sequential composition also satisfies soundness.
     The soundness error of the seqComposed verifier is the sum of the individual errors. -/
-theorem seqCompose_soundness
+theorem seqCompose_soundness (hst : impl.IsStateless) (hinit : Pr[⊥ | init] = 0)
     (lang : (i : Fin (m + 1)) → Set (Stmt i))
     (V : (i : Fin m) → Verifier oSpec (Stmt i.castSucc) (Stmt i.succ) (pSpec i))
     (soundnessError : Fin m → ℝ≥0)
@@ -401,7 +401,7 @@ theorem seqCompose_soundness
       (fun i => soundnessError i.succ) (fun i => h i.succ)
     simp at this
     rw [Fin.sum_univ_succ]
-    exact append_soundness (V 0) (seqCompose (Stmt ∘ Fin.succ) (fun i => V i.succ))
+    exact append_soundness hst hinit (V 0) (seqCompose (Stmt ∘ Fin.succ) (fun i => V i.succ))
       (h 0) this
 
 /-- If all verifiers in a sequence satisfy knowledge soundness with respective knowledge errors,
@@ -528,7 +528,7 @@ namespace OracleVerifier
   sequential composition also satisfies soundness.
   The soundness error of the sequentially composed oracle verifier is the sum of the individual
   errors. -/
-theorem seqCompose_soundness
+theorem seqCompose_soundness (hst : impl.IsStateless) (hinit : Pr[⊥ | init] = 0)
     (lang : (i : Fin (m + 1)) → Set (Stmt i × ∀ j, OStmt i j))
     (V : (i : Fin m) →
       OracleVerifier oSpec (Stmt i.castSucc) (OStmt i.castSucc) (Stmt i.succ) (OStmt i.succ)
@@ -538,7 +538,8 @@ theorem seqCompose_soundness
       (OracleVerifier.seqCompose Stmt OStmt V).soundness init impl (lang 0) (lang (Fin.last m))
         (∑ i, soundnessError i) := by
   unfold OracleVerifier.soundness
-  convert Verifier.seqCompose_soundness lang (fun i => (V i).toVerifier) soundnessError h
+  convert Verifier.seqCompose_soundness hst hinit lang (fun i => (V i).toVerifier)
+    soundnessError h
   simp only [seqCompose_toVerifier]
 
 /-- If all verifiers in a sequence satisfy knowledge soundness with respective knowledge errors,

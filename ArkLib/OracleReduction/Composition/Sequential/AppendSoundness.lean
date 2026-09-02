@@ -25,11 +25,11 @@ by `ε₂`.
 
 open OracleComp OracleSpec ProtocolSpec
 
-namespace Reduction
-
 variable {ι : Type} {oSpec : OracleSpec ι} {m n : ℕ}
   {Stmt₁ Wit₁ Stmt₂ Stmt₃ Wit₃ : Type}
   {pSpec₁ : ProtocolSpec m} {pSpec₂ : ProtocolSpec n}
+
+namespace Reduction
 
 /-- The appended protocol's ambient computation monad, named so the statements below fit on a
 line. -/
@@ -236,6 +236,12 @@ theorem probEvent_mk_append_of_isEmpty [IsEmpty Stmt₂] (stmt : Stmt₁) (wit :
 
 end Phases
 
+end Reduction
+
+namespace Verifier
+
+open Reduction
+
 section Compose
 
 variable {σ : Type} [∀ i, SampleableType (pSpec₁.Challenge i)]
@@ -259,7 +265,7 @@ The adversary is an arbitrary prover for `pSpec₁ ++ₚ pSpec₂`, so it is spl
 `Prover.takeLeft` / `Prover.dropLeft` before the two hypotheses can be applied. The witness types
 in the soundness game are universally quantified, which is what lets the private state at the cut
 serve as the first half's output witness. -/
-theorem Verifier.append_soundness'
+theorem append_soundness'
     (hcomm : (pImplOf (pSpec₁ ++ₚ pSpec₂) impl).IsCommutative)
     (V₁ : Verifier oSpec Stmt₁ Stmt₂ pSpec₁) (V₂ : Verifier oSpec Stmt₂ Stmt₃ pSpec₂)
     {ε₁ ε₂ : ℝ≥0}
@@ -318,6 +324,84 @@ theorem Verifier.append_soundness'
       exact probEvent_bind_congr init fun s₀ =>
         (probEvent_soundPhase₁_eq P V₁ stmtOut stmtIn witIn s₀).trans (OptionT.probEvent_mk _ _)
 
+
+open scoped NNReal in
+/-- **A stateless handler makes the initial state irrelevant.** Soundness from `init` then gives
+soundness from every fixed state, provided `init` itself never fails: the run's distribution does
+not depend on the state, so the `init`-averaged bound is the fixed-state bound scaled by `init`'s
+success probability. Without `hinit` that scaling loses mass and the implication is false.
+
+This is what discharges `append_soundness'`'s second hypothesis. -/
+theorem soundness_of_isStateless {N : ℕ} {pSpec : ProtocolSpec N} {S S' : Type}
+    [∀ i, SampleableType (pSpec.Challenge i)] {V : Verifier oSpec S S' pSpec}
+    {langIn : Set S} {langOut : Set S'} {ε : ℝ≥0}
+    (hst : impl.IsStateless) (hinit : Pr[⊥ | init] = 0)
+    (h : V.soundness init impl langIn langOut ε) (s : σ) :
+      V.soundness (pure s) impl langIn langOut ε := by
+  intro WitIn WitOut witIn prover stmtIn hstmtIn
+  have hc := h WitIn WitOut witIn prover stmtIn hstmtIn
+  dsimp only at hc ⊢
+  have hconst : ∀ s₀ : σ,
+      StateT.run' (simulateQ (QueryImpl.addLift impl challengeQueryImpl :
+        QueryImpl (oSpec + [pSpec.Challenge]ₒ) (StateT σ ProbComp))
+          (Reduction.run stmtIn witIn (Reduction.mk prover V)).run) s₀
+        = StateT.run' (simulateQ (QueryImpl.addLift impl challengeQueryImpl :
+            QueryImpl (oSpec + [pSpec.Challenge]ₒ) (StateT σ ProbComp))
+              (Reduction.run stmtIn witIn (Reduction.mk prover V)).run) s := fun s₀ => by
+    rw [QueryImpl.simulateQ_run'_of_isStateless (hst.addLift challengeQueryImpl),
+      QueryImpl.simulateQ_run'_of_isStateless (hst.addLift challengeQueryImpl)]
+  simp only [hconst, pure_bind] at hc ⊢
+  rw [OptionT.probEvent_mk] at hc ⊢
+  refine le_trans (le_of_eq ?_) hc
+  rw [probEvent_bind_eq_tsum, ENNReal.tsum_mul_right, tsum_probOutput_eq_one' hinit, one_mul]
+
+open scoped NNReal in
+/-- **Sequential composition preserves soundness, for a stateless handler.** The drop-in
+replacement for the statement that used to sit in `Append.lean` with a `sorry`. A stateless
+handler is trivially commutative, and `hinit` -- an initial state that is actually sampled --
+is what carries `V₂`'s bound from `init` to the state the first phase leaves behind. -/
+theorem append_soundness (hst : impl.IsStateless) (hinit : Pr[⊥ | init] = 0)
+    (V₁ : Verifier oSpec Stmt₁ Stmt₂ pSpec₁) (V₂ : Verifier oSpec Stmt₂ Stmt₃ pSpec₂)
+    {ε₁ ε₂ : ℝ≥0}
+    (h₁ : V₁.soundness init impl lang₁ lang₂ ε₁)
+    (h₂ : V₂.soundness init impl lang₂ lang₃ ε₂) :
+      (V₁.append V₂).soundness init impl lang₁ lang₃ (ε₁ + ε₂) :=
+  append_soundness' (hst.addLift challengeQueryImpl).isCommutative V₁ V₂ h₁
+    fun s => soundness_of_isStateless hst hinit h₂ s
+
 end Compose
 
-end Reduction
+end Verifier
+
+section OracleProtocol
+
+variable {ι : Type} {oSpec : OracleSpec ι} {m n : ℕ} {Stmt₁ Stmt₂ Stmt₃ : Type}
+  {ιₛ₁ : Type} {OStmt₁ : ιₛ₁ → Type} [Oₛ₁ : ∀ i, OracleInterface (OStmt₁ i)]
+  {ιₛ₂ : Type} {OStmt₂ : ιₛ₂ → Type} [Oₛ₂ : ∀ i, OracleInterface (OStmt₂ i)]
+  {ιₛ₃ : Type} {OStmt₃ : ιₛ₃ → Type} [Oₛ₃ : ∀ i, OracleInterface (OStmt₃ i)]
+  {pSpec₁ : ProtocolSpec m} {pSpec₂ : ProtocolSpec n}
+  [Oₘ₁ : ∀ i, OracleInterface (pSpec₁.Message i)] [Oₘ₂ : ∀ i, OracleInterface (pSpec₂.Message i)]
+  [∀ i, SampleableType (pSpec₁.Challenge i)] [∀ i, SampleableType (pSpec₂.Challenge i)]
+  {σ : Type} {init : ProbComp σ} {impl : QueryImpl oSpec (StateT σ ProbComp)}
+  {lang₁ : Set (Stmt₁ × ∀ i, OStmt₁ i)} {lang₂ : Set (Stmt₂ × ∀ i, OStmt₂ i)}
+  {lang₃ : Set (Stmt₃ × ∀ i, OStmt₃ i)}
+
+namespace OracleVerifier
+
+open scoped NNReal in
+/-- Sequential composition preserves soundness for oracle verifiers, for a stateless handler.
+The oracle-side counterpart of `Verifier.append_soundness`, moved here with it. -/
+theorem append_soundness (hst : impl.IsStateless) (hinit : Pr[⊥ | init] = 0)
+    (V₁ : OracleVerifier oSpec Stmt₁ OStmt₁ Stmt₂ OStmt₂ pSpec₁)
+    (V₂ : OracleVerifier oSpec Stmt₂ OStmt₂ Stmt₃ OStmt₃ pSpec₂)
+    {ε₁ ε₂ : ℝ≥0}
+    (h₁ : V₁.soundness init impl lang₁ lang₂ ε₁)
+    (h₂ : V₂.soundness init impl lang₂ lang₃ ε₂) :
+      (V₁.append V₂).soundness init impl lang₁ lang₃ (ε₁ + ε₂) := by
+  unfold soundness
+  convert Verifier.append_soundness hst hinit V₁.toVerifier V₂.toVerifier h₁ h₂
+  simp only [append_toVerifier]
+
+end OracleVerifier
+
+end OracleProtocol
