@@ -490,6 +490,43 @@ theorem probEvent_ksTailRight_le [Nonempty Wit₂]
         simulateQ_pure, StateT.run_pure, probEvent_pure, Function.comp, Option.elim]
       simp [hb]
 
+open scoped NNReal in
+/-- `evalDist_ksTailRight_drawFirst` under a stateless handler, with the state threaded. The
+state is never read, so both sides are the `ProbComp` statement paired with the initial state. -/
+theorem evalDist_ksTailRight_drawFirst_stateT (hst : impl.IsStateless)
+    (verify : Stmt₁ → pSpec₁.FullTranscript → Stmt₂)
+    (E₁ : Extractor.Straightline oSpec Stmt₁ Wit₁ Wit₂ pSpec₁)
+    (E₂ : Extractor.Straightline oSpec Stmt₂ Wit₂ Wit₃ pSpec₂)
+    (V₂ : Verifier oSpec Stmt₂ Stmt₃ pSpec₂)
+    (P : Prover oSpec Stmt₁ Wit₁ Stmt₃ Wit₃ (pSpec₁ ++ₚ pSpec₂)) (stmtIn : Stmt₁)
+    (x : pSpec₁.FullTranscript × Stmt₂ × Reduction.CutState P) (s₂ : Stmt₂) (s₁ : σ) :
+    𝒟[StateT.run (simulateQ (Reduction.pImplOf pSpec₂ impl)
+        (ksTailRight verify E₁ E₂ V₂ P stmtIn x s₂)) s₁]
+      = 𝒟[pSpec₂.drawChalsBelow n le_rfl >>= fun c =>
+          StateT.run (simulateQ (Reduction.pImplOf pSpec₂ impl)
+            ((liftM ((P.dropLeft (Stmt₂ := Stmt₂)).runFixed c s₂
+                (cast (Prover.prvState_cut_eq P) x.2.2)) :
+                OracleComp (oSpec + [pSpec₂.Challenge]ₒ) _)
+              >>= ksTailAfterProver verify E₁ E₂ V₂ P stmtIn x s₂)) s₁] := by
+  have hbase := QueryImpl.isStateless_addLift_apply hst (challengeQueryImpl (pSpec := pSpec₂))
+  have hmapout : (pSpec₂.drawChalsBelow n le_rfl >>= fun c =>
+        StateT.run (simulateQ (Reduction.pImplOf pSpec₂ impl)
+          ((liftM ((P.dropLeft (Stmt₂ := Stmt₂)).runFixed c s₂
+              (cast (Prover.prvState_cut_eq P) x.2.2)) :
+              OracleComp (oSpec + [pSpec₂.Challenge]ₒ) _)
+            >>= ksTailAfterProver verify E₁ E₂ V₂ P stmtIn x s₂)) s₁)
+      = (fun a => (a, s₁)) <$> (pSpec₂.drawChalsBelow n le_rfl >>= fun c =>
+          simulateQ (hst.base.addLift challengeQueryImpl :
+              QueryImpl (oSpec + [pSpec₂.Challenge]ₒ) ProbComp)
+            ((liftM ((P.dropLeft (Stmt₂ := Stmt₂)).runFixed c s₂
+                (cast (Prover.prvState_cut_eq P) x.2.2)) :
+                OracleComp (oSpec + [pSpec₂.Challenge]ₒ) _)
+              >>= ksTailAfterProver verify E₁ E₂ V₂ P stmtIn x s₂)) :=
+    Eq.trans (bind_congr fun c => QueryImpl.simulateQ_run_of_apply hbase _ s₁)
+      (map_bind _ _ _).symm
+  rw [QueryImpl.simulateQ_run_of_apply hbase, evalDist_map,
+    evalDist_ksTailRight_drawFirst hst.base verify E₁ E₂ V₂ P stmtIn x s₂, hmapout, evalDist_map]
+
 open OracleComp.DeferredSampling in
 open scoped NNReal in
 /-- **A stateless handler and a lossless `init` collapse a game to a plain `ProbComp`.** The
