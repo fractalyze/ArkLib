@@ -326,6 +326,79 @@ theorem run_mk_dropLeftFrom (P : Prover oSpec Stmt₁ Wit₁ Stmt₃ Wit₃ (pSp
     Reduction.run s₂ wit (Reduction.mk (Prover.dropLeftFrom P w) V₂)
       = Reduction.run s₂ w (Reduction.mk (P.dropLeft (Stmt₂ := Stmt₂)) V₂) := rfl
 
+/-- Everything the post-cut tail does *after* the adversary's second half has run: the second
+verifier, then both extractors. Only `oSpec` is queried from here on. -/
+def ksTailAfterProver (verify : Stmt₁ → pSpec₁.FullTranscript → Stmt₂)
+    (E₁ : Extractor.Straightline oSpec Stmt₁ Wit₁ Wit₂ pSpec₁)
+    (E₂ : Extractor.Straightline oSpec Stmt₂ Wit₂ Wit₃ pSpec₂)
+    (V₂ : Verifier oSpec Stmt₂ Stmt₃ pSpec₂)
+    (P : Prover oSpec Stmt₁ Wit₁ Stmt₃ Wit₃ (pSpec₁ ++ₚ pSpec₂)) (stmtIn : Stmt₁)
+    (x : pSpec₁.FullTranscript × Stmt₂ × Reduction.CutState P) (s₂ : Stmt₂)
+    (y : pSpec₂.FullTranscript × Stmt₃ × Wit₃) :
+    OracleComp (oSpec + [pSpec₂.Challenge]ₒ)
+      (Option ((Stmt₁ × Option Wit₁ × Stmt₃ × Wit₃) × Stmt₂ × Option Wit₂)) :=
+  liftM (V₂.verify s₂ y.1).run >>= fun o₃ =>
+    Option.elim o₃ (pure none) fun s₃ =>
+      liftM (E₂ s₂ y.2.2 y.1 [] []).run >>= fun w₂? =>
+        liftM (w₂?.elim (pure none) fun w₂ => (E₁ stmtIn w₂ x.1 [] []).run) >>= fun w₁? =>
+          pure (some ((stmtIn, w₁?, s₃, y.2.2), s₂, w₂?))
+
+/-- The post-cut tail is the adversary's second half, then everything else. -/
+theorem ksTailRight_eq_bind (verify : Stmt₁ → pSpec₁.FullTranscript → Stmt₂)
+    (E₁ : Extractor.Straightline oSpec Stmt₁ Wit₁ Wit₂ pSpec₁)
+    (E₂ : Extractor.Straightline oSpec Stmt₂ Wit₂ Wit₃ pSpec₂)
+    (V₂ : Verifier oSpec Stmt₂ Stmt₃ pSpec₂)
+    (P : Prover oSpec Stmt₁ Wit₁ Stmt₃ Wit₃ (pSpec₁ ++ₚ pSpec₂)) (stmtIn : Stmt₁)
+    (x : pSpec₁.FullTranscript × Stmt₂ × Reduction.CutState P) (s₂ : Stmt₂) :
+    ksTailRight verify E₁ E₂ V₂ P stmtIn x s₂
+      = Prover.run s₂ (cast (Prover.prvState_cut_eq P) x.2.2) (P.dropLeft (Stmt₂ := Stmt₂))
+          >>= ksTailAfterProver verify E₁ E₂ V₂ P stmtIn x s₂ := by
+  rw [ksTailRight, Reduction.run_run_flat, bind_assoc]
+  refine bind_congr fun y => ?_
+  rw [ksTailAfterProver, bind_assoc]
+  refine bind_congr fun o₃ => ?_
+  cases o₃ <;> simp
+
+open scoped NNReal in
+/-- **The second half's challenges, drawn before the tail.** `Prover.evalDist_run_drawFirst`
+applied to the adversary's second half where it sits, at the front of the post-cut tail. With the
+challenges in hand, that half is an ordinary `oSpec` computation. -/
+theorem evalDist_ksTailRight_drawFirst [∀ i, SampleableType (pSpec₂.Challenge i)]
+    (implP : QueryImpl oSpec ProbComp) (verify : Stmt₁ → pSpec₁.FullTranscript → Stmt₂)
+    (E₁ : Extractor.Straightline oSpec Stmt₁ Wit₁ Wit₂ pSpec₁)
+    (E₂ : Extractor.Straightline oSpec Stmt₂ Wit₂ Wit₃ pSpec₂)
+    (V₂ : Verifier oSpec Stmt₂ Stmt₃ pSpec₂)
+    (P : Prover oSpec Stmt₁ Wit₁ Stmt₃ Wit₃ (pSpec₁ ++ₚ pSpec₂)) (stmtIn : Stmt₁)
+    (x : pSpec₁.FullTranscript × Stmt₂ × Reduction.CutState P) (s₂ : Stmt₂) :
+    𝒟[simulateQ (implP.addLift challengeQueryImpl :
+        QueryImpl (oSpec + [pSpec₂.Challenge]ₒ) ProbComp)
+        (ksTailRight verify E₁ E₂ V₂ P stmtIn x s₂)]
+      = 𝒟[pSpec₂.drawChalsBelow n le_rfl >>= fun c =>
+          simulateQ (implP.addLift challengeQueryImpl :
+              QueryImpl (oSpec + [pSpec₂.Challenge]ₒ) ProbComp)
+            ((liftM ((P.dropLeft (Stmt₂ := Stmt₂)).runFixed c s₂
+                (cast (Prover.prvState_cut_eq P) x.2.2)) :
+                OracleComp (oSpec + [pSpec₂.Challenge]ₒ) _)
+              >>= ksTailAfterProver verify E₁ E₂ V₂ P stmtIn x s₂)] := by
+  have hD : 𝒟[simulateQ (implP.addLift challengeQueryImpl :
+        QueryImpl (oSpec + [pSpec₂.Challenge]ₒ) ProbComp)
+        (Prover.run s₂ (cast (Prover.prvState_cut_eq P) x.2.2) (P.dropLeft (Stmt₂ := Stmt₂)))]
+      = 𝒟[pSpec₂.drawChalsBelow n le_rfl >>= fun c =>
+          simulateQ (implP.addLift challengeQueryImpl :
+              QueryImpl (oSpec + [pSpec₂.Challenge]ₒ) ProbComp)
+            ((liftM ((P.dropLeft (Stmt₂ := Stmt₂)).runFixed c s₂
+                (cast (Prover.prvState_cut_eq P) x.2.2)) :
+                OracleComp (oSpec + [pSpec₂.Challenge]ₒ) _))] := by
+    rw [Prover.evalDist_run_drawFirst implP (P.dropLeft (Stmt₂ := Stmt₂)) s₂ _]
+    exact congrArg evalDist (bind_congr fun c =>
+      ((Prover.simulateQ_addLift_base implP challengeQueryImpl _).trans
+        (Prover.simulateQ_runFixed implP _ c s₂ _)).symm)
+  rw [ksTailRight_eq_bind]
+  refine Eq.trans (congrArg evalDist (simulateQ_bind _ _ _))
+    (Eq.trans (Prover.evalDist_bind_congr_prefix hD _)
+      (Eq.trans (congrArg evalDist (bind_assoc _ _ _)) ?_))
+  exact congrArg evalDist (bind_congr fun c => (simulateQ_bind _ _ _).symm)
+
 /-- On the branch where the first verifier accepted with `s₂`, the post-cut tail is exactly its
 second-protocol form, lifted. -/
 theorem ksTail_eq (verify : Stmt₁ → pSpec₁.FullTranscript → Stmt₂)

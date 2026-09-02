@@ -154,7 +154,7 @@ private lemma liftTarget_self {ι' : Type} {spec' : OracleSpec ι'}
     (impl : QueryImpl spec' ProbComp) : QueryImpl.liftTarget ProbComp impl = impl := rfl
 
 /-- Simulating a base-spec computation under an added handler ignores the added half. -/
-private lemma simulateQ_addLift_base {ι' : Type} {spec' : OracleSpec ι'} {α : Type}
+lemma simulateQ_addLift_base {ι' : Type} {spec' : OracleSpec ι'} {α : Type}
     (implP : QueryImpl oSpec ProbComp) (g : QueryImpl spec' ProbComp)
     (x : OracleComp oSpec α) :
     simulateQ (implP.addLift g : QueryImpl (oSpec + spec') ProbComp)
@@ -163,7 +163,7 @@ private lemma simulateQ_addLift_base {ι' : Type} {spec' : OracleSpec ι'} {α :
     QueryImpl.simulateQ_add_liftComp_left]
 
 /-- Simulating an added-spec computation under an added handler ignores the base half. -/
-private lemma simulateQ_addLift_added {ι' : Type} {spec' : OracleSpec ι'} {α : Type}
+lemma simulateQ_addLift_added {ι' : Type} {spec' : OracleSpec ι'} {α : Type}
     (implP : QueryImpl oSpec ProbComp) (g : QueryImpl spec' ProbComp)
     (y : OracleComp spec' α) :
     simulateQ (implP.addLift g : QueryImpl (oSpec + spec') ProbComp)
