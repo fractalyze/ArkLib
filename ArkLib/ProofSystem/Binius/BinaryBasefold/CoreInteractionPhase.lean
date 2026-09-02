@@ -120,7 +120,7 @@ theorem foldRelayOracleReduction_perfectCompleteness
       (h_ℓ_add_R_rate := h_ℓ_add_R_rate) i hNCR)
     (init := init) (impl := impl) := by
     unfold foldRelayOracleReduction pSpecFoldRelay
-    exact OracleReduction.append_perfectCompleteness _ _
+    exact OracleReduction.append_perfectCompleteness (QueryImpl.isStateless_of_isEmpty impl) _ _
       (foldOracleReduction_perfectCompleteness (mp := mp) 𝔽q β i)
       (relayOracleReduction_perfectCompleteness 𝔽q β i hNCR)
 
@@ -210,7 +210,7 @@ theorem foldCommitOracleReduction_perfectCompleteness
       (oracleReduction := foldCommitOracleReduction (mp := mp) 𝔽q β (ϑ:=ϑ)
         (h_ℓ_add_R_rate := h_ℓ_add_R_rate) i hCR) (init := init) (impl := impl) := by
     unfold foldCommitOracleReduction pSpecFoldCommit
-    exact OracleReduction.append_perfectCompleteness _ _
+    exact OracleReduction.append_perfectCompleteness (QueryImpl.isStateless_of_isEmpty impl) _ _
       (foldOracleReduction_perfectCompleteness (mp := mp) 𝔽q β i)
       (commitOracleReduction_perfectCompleteness 𝔽q β i hCR)
 
@@ -808,7 +808,7 @@ theorem coreInteractionOracleReduction_perfectCompleteness :
       (init := init)
       (impl := impl) := by
   unfold coreInteractionOracleReduction pSpecCoreInteraction
-  apply OracleReduction.append_perfectCompleteness
+  apply OracleReduction.append_perfectCompleteness (QueryImpl.isStateless_of_isEmpty impl)
   · -- Perfect completeness of sumcheckFoldOracleReduction
     exact sumcheckFoldOracleReduction_perfectCompleteness 𝔽q β (ϑ:=ϑ)
       (h_ℓ_add_R_rate := h_ℓ_add_R_rate) (mp := BBF_SumcheckMultiplierParam)

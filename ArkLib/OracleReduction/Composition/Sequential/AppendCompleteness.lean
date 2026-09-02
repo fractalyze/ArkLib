@@ -70,6 +70,35 @@ theorem run_run_flat (R : Reduction oSpec S W S' W' pSpec) (stmt : S) (wit : W) 
   simp only [Verifier.run, ← monadLift_liftM_OptionT, OptionT.run_liftM_bind,
     OptionT.run_getM_bind, OptionT.run_pure]
 
+
+open scoped NNReal in
+/-- **A stateless handler makes the initial state irrelevant.** Completeness from `init` then
+gives completeness from every fixed state: the run's result distribution does not depend on
+the state at all, and `init`'s own failure probability only ever lowers the bound.
+
+This is what discharges `append_completeness'`'s second hypothesis. -/
+theorem completeness_of_isStateless {σ : Type} {init : ProbComp σ}
+    {impl : QueryImpl oSpec (StateT σ ProbComp)} [∀ i, SampleableType (pSpec.Challenge i)]
+    {relIn : Set (S × W)} {relOut : Set (S' × W')} {ε : ℝ≥0}
+    {R : Reduction oSpec S W S' W' pSpec} (hst : impl.IsStateless)
+    (h : R.completeness init impl relIn relOut ε) (s : σ) :
+    R.completeness (pure s) impl relIn relOut ε := by
+  intro stmtIn witIn hRelIn
+  have hc := h stmtIn witIn hRelIn
+  dsimp only at hc ⊢
+  have hconst : ∀ s₀ : σ,
+      StateT.run' (simulateQ (QueryImpl.addLift impl challengeQueryImpl :
+        QueryImpl (oSpec + [pSpec.Challenge]ₒ) (StateT σ ProbComp))
+          (Reduction.run stmtIn witIn R).run) s₀
+        = StateT.run' (simulateQ (QueryImpl.addLift impl challengeQueryImpl :
+            QueryImpl (oSpec + [pSpec.Challenge]ₒ) (StateT σ ProbComp))
+              (Reduction.run stmtIn witIn R).run) s := fun s₀ => by
+    rw [QueryImpl.simulateQ_run'_of_isStateless (hst.addLift challengeQueryImpl),
+      QueryImpl.simulateQ_run'_of_isStateless (hst.addLift challengeQueryImpl)]
+  simp only [hconst, pure_bind] at hc ⊢
+  rw [ge_iff_le, OptionT.probEvent_mk] at hc ⊢
+  exact le_trans hc (probEvent_bind_le_of_forall_le fun _ _ => le_rfl)
+
 end SingleRun
 
 /-- **The appended reduction, run.** `Prover.append_run` puts the two provers in sequence;
@@ -118,7 +147,7 @@ theorem append_run_run_flat (R₁ : Reduction oSpec Stmt₁ Wit₁ Stmt₂ Wit�
   simp only [OptionT.run_liftM_bind, OptionT.run_getM_bind, OptionT.run_pure]
 
 /-- **The appended run with the two verifiers split apart.** `append_run_run_flat` leaves
-`V₁ ; V₂` as one `OptionT` block; this pulls its failure bookkeeping out into the two
+`V₁ then V₂` as one `OptionT` block; this pulls its failure bookkeeping out into the two
 `Option.elim`s the swap has to commute past. -/
 theorem append_run_run_split (R₁ : Reduction oSpec Stmt₁ Wit₁ Stmt₂ Wit₂ pSpec₁)
     (R₂ : Reduction oSpec Stmt₂ Wit₂ Stmt₃ Wit₃ pSpec₂) (stmt : Stmt₁) (wit : Wit₁) :
@@ -423,7 +452,7 @@ theorem probEvent_appendPhase₂_eq (R₂ : Reduction oSpec Stmt₂ Wit₂ Stmt�
   cases o <;> simp [Function.comp]
 
 
-variable {rel₁ : Set (Stmt₁ × Wit₁)} (init : ProbComp σ)
+variable {rel₁ : Set (Stmt₁ × Wit₁)} {init : ProbComp σ}
 
 open scoped NNReal in
 /-- **Sequential composition preserves completeness.**
@@ -487,8 +516,84 @@ theorem append_completeness'
       rw [probEvent_appendPhase₂_eq R₂ x s₂ hprv s₁, OptionT.probEvent_mk]
       simpa using hc
 
+
+open scoped NNReal in
+/-- **Sequential composition preserves completeness, for a stateless handler.** The repaired
+replacement for the declaration that used to live in `Append.lean`: same statement, plus the
+hypothesis that makes it true. `IsStateless` discharges both of `append_completeness'`'s
+hypotheses -- a stateless handler is commutative, and under it completeness from `init` gives
+completeness from every state.
+
+For `oSpec = []ₒ` -- which is where every current consumer instantiates composition -- the
+hypothesis is `QueryImpl.isStateless_of_isEmpty impl`. -/
+theorem append_completeness (hst : impl.IsStateless)
+    (R₁ : Reduction oSpec Stmt₁ Wit₁ Stmt₂ Wit₂ pSpec₁)
+    (R₂ : Reduction oSpec Stmt₂ Wit₂ Stmt₃ Wit₃ pSpec₂) {ε₁ ε₂ : ℝ≥0}
+    (h₁ : R₁.completeness init impl rel₁ rel₂ ε₁)
+    (h₂ : R₂.completeness init impl rel₂ rel₃ ε₂) :
+      (R₁.append R₂).completeness init impl rel₁ rel₃ (ε₁ + ε₂) :=
+  append_completeness' (hst.addLift challengeQueryImpl).isCommutative R₁ R₂ h₁
+    fun s => completeness_of_isStateless hst h₂ s
+
+/-- If two reductions satisfy perfect completeness with compatible relations, then their
+concatenation also satisfies perfect completeness -- for a stateless handler. -/
+theorem append_perfectCompleteness (hst : impl.IsStateless)
+    (R₁ : Reduction oSpec Stmt₁ Wit₁ Stmt₂ Wit₂ pSpec₁)
+    (R₂ : Reduction oSpec Stmt₂ Wit₂ Stmt₃ Wit₃ pSpec₂)
+    (h₁ : R₁.perfectCompleteness init impl rel₁ rel₂)
+    (h₂ : R₂.perfectCompleteness init impl rel₂ rel₃) :
+      (R₁.append R₂).perfectCompleteness init impl rel₁ rel₃ := by
+  dsimp only [perfectCompleteness] at h₁ h₂ ⊢
+  simpa only [add_zero] using append_completeness hst R₁ R₂ h₁ h₂
+
 end Phases
 
 
 
 end Reduction
+
+section OracleProtocol
+
+variable {ι : Type} {oSpec : OracleSpec ι} {m n : ℕ}
+  {Stmt₁ Wit₁ Stmt₂ Wit₂ Stmt₃ Wit₃ : Type}
+  {ιₛ₁ : Type} {OStmt₁ : ιₛ₁ → Type} [Oₛ₁ : ∀ i, OracleInterface (OStmt₁ i)]
+  {ιₛ₂ : Type} {OStmt₂ : ιₛ₂ → Type} [Oₛ₂ : ∀ i, OracleInterface (OStmt₂ i)]
+  {ιₛ₃ : Type} {OStmt₃ : ιₛ₃ → Type} [Oₛ₃ : ∀ i, OracleInterface (OStmt₃ i)]
+  {pSpec₁ : ProtocolSpec m} {pSpec₂ : ProtocolSpec n}
+  [Oₘ₁ : ∀ i, OracleInterface (pSpec₁.Message i)] [Oₘ₂ : ∀ i, OracleInterface (pSpec₂.Message i)]
+  [∀ i, SampleableType (pSpec₁.Challenge i)] [∀ i, SampleableType (pSpec₂.Challenge i)]
+  {σ : Type} {init : ProbComp σ} {impl : QueryImpl oSpec (StateT σ ProbComp)}
+  {rel₁ : Set ((Stmt₁ × ∀ i, OStmt₁ i) × Wit₁)}
+  {rel₂ : Set ((Stmt₂ × ∀ i, OStmt₂ i) × Wit₂)}
+  {rel₃ : Set ((Stmt₃ × ∀ i, OStmt₃ i) × Wit₃)}
+
+namespace OracleReduction
+
+open scoped NNReal in
+/-- Sequential composition preserves completeness for oracle reductions, for a stateless
+handler. The oracle-side counterpart of `Reduction.append_completeness`, moved here with it. -/
+theorem append_completeness (hst : impl.IsStateless)
+    (R₁ : OracleReduction oSpec Stmt₁ OStmt₁ Wit₁ Stmt₂ OStmt₂ Wit₂ pSpec₁)
+    (R₂ : OracleReduction oSpec Stmt₂ OStmt₂ Wit₂ Stmt₃ OStmt₃ Wit₃ pSpec₂)
+    {ε₁ ε₂ : ℝ≥0}
+    (h₁ : R₁.completeness init impl rel₁ rel₂ ε₁)
+    (h₂ : R₂.completeness init impl rel₂ rel₃ ε₂) :
+      (R₁.append R₂).completeness init impl rel₁ rel₃ (ε₁ + ε₂) := by
+  unfold completeness
+  convert Reduction.append_completeness hst R₁.toReduction R₂.toReduction h₁ h₂
+  simp only [append_toReduction]
+
+/-- If two oracle reductions satisfy perfect completeness with compatible relations, then their
+sequential composition also satisfies perfect completeness -- for a stateless handler. -/
+theorem append_perfectCompleteness (hst : impl.IsStateless)
+    (R₁ : OracleReduction oSpec Stmt₁ OStmt₁ Wit₁ Stmt₂ OStmt₂ Wit₂ pSpec₁)
+    (R₂ : OracleReduction oSpec Stmt₂ OStmt₂ Wit₂ Stmt₃ OStmt₃ Wit₃ pSpec₂)
+    (h₁ : R₁.perfectCompleteness init impl rel₁ rel₂)
+    (h₂ : R₂.perfectCompleteness init impl rel₂ rel₃) :
+      (R₁.append R₂).perfectCompleteness init impl rel₁ rel₃ := by
+  change (R₁.append R₂).completeness init impl rel₁ rel₃ 0
+  simpa only [zero_add] using OracleReduction.append_completeness hst R₁ R₂ h₁ h₂
+
+end OracleReduction
+
+end OracleProtocol

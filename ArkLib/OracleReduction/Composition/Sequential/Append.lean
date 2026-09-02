@@ -656,52 +656,10 @@ conditions (what are they?)
 
 namespace Reduction
 
-/-- Sequential composition preserves completeness
-
-  Namely, two reductions satisfy completeness with compatible relations (`rel₁`, `rel₂` for `R₁` and
-  `rel₂`, `rel₃` for `R₂`), and respective completeness errors `completenessError₁` and
-  `completenessError₂`, then their sequential composition `R₁.append R₂` also satisfies
-  completeness with respect to `rel₁` and `rel₃`.
-
-  The completeness error of the appended reduction is the sum of the individual errors
-  (`completenessError₁ + completenessError₂`).
-  **This statement is false, and cannot be proved without an extra hypothesis.**
-  `Reduction.run` runs the whole prover and then the whole verifier, so the appended reduction
-  executes `P₁, P₂, V₁, V₂`, while `h₁` and `h₂` speak about `P₁, V₁` and `P₂, V₂` from a freshly
-  sampled `init`. For a stateful `impl`, `V₁` in the appended run starts from the state `P₂` left
-  behind, and `h₁` does not apply to it. `AppendCounterexample.lean` exhibits two perfectly
-  complete reductions whose append rejects with probability one, `sorry`-free.
-
-  This is what the `TODO` above asks about. It is a different defect from the one
-  `Prover.append_run` had: that was a within-round effect ordering, repaired by reordering
-  `Prover.processRound`; this is what `Reduction.append` means, so the repair is a hypothesis
-  (statelessness of `impl`, or the commutative-monad condition the `TODO` sketches). -/
-theorem append_completeness
-    (R₁ : Reduction oSpec Stmt₁ Wit₁ Stmt₂ Wit₂ pSpec₁)
-    (R₂ : Reduction oSpec Stmt₂ Wit₂ Stmt₃ Wit₃ pSpec₂)
-    {completenessError₁ completenessError₂ : ℝ≥0}
-    (h₁ : R₁.completeness init impl rel₁ rel₂ completenessError₁)
-    (h₂ : R₂.completeness init impl rel₂ rel₃ completenessError₂) :
-      (R₁.append R₂).completeness init impl
-        rel₁ rel₃ (completenessError₁ + completenessError₂) := by
-  unfold completeness at h₁ h₂ ⊢
-  intro stmtIn witIn hRelIn
-  have h₁' := h₁ stmtIn witIn hRelIn
-  clear h₁
-  unfold Reduction.append Reduction.run
-  simp [Prover.append_run, Verifier.append_run]
-  sorry
-
-/-- If two reductions satisfy perfect completeness with compatible relations, then their
-  concatenation also satisfies perfect completeness. -/
-theorem append_perfectCompleteness (R₁ : Reduction oSpec Stmt₁ Wit₁ Stmt₂ Wit₂ pSpec₁)
-    (R₂ : Reduction oSpec Stmt₂ Wit₂ Stmt₃ Wit₃ pSpec₂)
-    (h₁ : R₁.perfectCompleteness init impl rel₁ rel₂)
-    (h₂ : R₂.perfectCompleteness init impl rel₂ rel₃) :
-      (R₁.append R₂).perfectCompleteness init impl rel₁ rel₃ := by
-  dsimp [perfectCompleteness] at h₁ h₂ ⊢
-  convert Reduction.append_completeness R₁ R₂ h₁ h₂
-  simp only [add_zero]
+/-! `Reduction.append_completeness` and `Reduction.append_perfectCompleteness` used to live
+here. They are false as stated -- `AppendCounterexample.lean` exhibits two perfectly complete
+reductions whose append rejects with probability one -- and now live, repaired and proved, in
+`AppendCompleteness.lean`, where the hypotheses they need are in scope. -/
 
 variable {R₁ : Reduction oSpec Stmt₁ Wit₁ Stmt₂ Wit₂ pSpec₁}
   {R₂ : Reduction oSpec Stmt₂ Wit₂ Stmt₃ Wit₃ pSpec₂}
@@ -791,37 +749,9 @@ variable {Stmt₁ : Type} {ιₛ₁ : Type} {OStmt₁ : ιₛ₁ → Type} [Oₛ
 
 namespace OracleReduction
 
-/-- Sequential composition preserves completeness
-
-  Namely, two oracle reductions satisfy completeness with compatible relations (`rel₁`, `rel₂` for
-  `R₁` and `rel₂`, `rel₃` for `R₂`), and respective completeness errors `completenessError₁` and
-  `completenessError₂`, then their sequential composition `R₁.append R₂` also satisfies completeness
-  with respect to `rel₁` and `rel₃`.
-
-  The completeness error of the appended reduction is the sum of the individual errors
-  (`completenessError₁ + completenessError₂`). -/
-theorem append_completeness
-    (R₁ : OracleReduction oSpec Stmt₁ OStmt₁ Wit₁ Stmt₂ OStmt₂ Wit₂ pSpec₁)
-    (R₂ : OracleReduction oSpec Stmt₂ OStmt₂ Wit₂ Stmt₃ OStmt₃ Wit₃ pSpec₂)
-    {completenessError₁ completenessError₂ : ℝ≥0}
-    (h₁ : R₁.completeness init impl rel₁ rel₂ completenessError₁)
-    (h₂ : R₂.completeness init impl rel₂ rel₃ completenessError₂) :
-      (R₁.append R₂).completeness init impl
-        rel₁ rel₃ (completenessError₁ + completenessError₂) := by
-  unfold completeness
-  convert Reduction.append_completeness R₁.toReduction R₂.toReduction h₁ h₂
-  simp only [append_toReduction]
-
-/-- If two oracle reductions satisfy perfect completeness with compatible relations, then their
-  sequential composition also satisfies perfect completeness. -/
-theorem append_perfectCompleteness
-    (R₁ : OracleReduction oSpec Stmt₁ OStmt₁ Wit₁ Stmt₂ OStmt₂ Wit₂ pSpec₁)
-    (R₂ : OracleReduction oSpec Stmt₂ OStmt₂ Wit₂ Stmt₃ OStmt₃ Wit₃ pSpec₂)
-    (h₁ : R₁.perfectCompleteness init impl rel₁ rel₂)
-    (h₂ : R₂.perfectCompleteness init impl rel₂ rel₃) :
-      (R₁.append R₂).perfectCompleteness init impl rel₁ rel₃ := by
-  change (R₁.append R₂).completeness init impl rel₁ rel₃ 0
-  simpa only [zero_add] using OracleReduction.append_completeness R₁ R₂ h₁ h₂
+/-! `OracleReduction.append_completeness` and `OracleReduction.append_perfectCompleteness`
+moved to `AppendCompleteness.lean` along with their non-oracle counterparts; see the note in
+the `Reduction` namespace above. -/
 
 end OracleReduction
 

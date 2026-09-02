@@ -126,7 +126,7 @@ lemma batchingCore_perfectCompleteness :
   (relIn := BatchingPhase.batchingInputRelation κ L K P ℓ ℓ' h_l mlIOPCS.toAbstractOStmtIn)
   (relOut := mlIOPCS.toRelInput)
   (init:=init) (impl:=impl) := by
-  apply OracleReduction.append_perfectCompleteness
+  apply OracleReduction.append_perfectCompleteness (QueryImpl.isStateless_of_isEmpty impl)
   · exact BatchingPhase.batchingReduction_perfectCompleteness κ L K P ℓ ℓ' h_l
        mlIOPCS.toAbstractOStmtIn
   · exact SumcheckPhase.coreInteraction_perfectCompleteness
@@ -140,7 +140,7 @@ theorem fullOracleReduction_perfectCompleteness :
         mlIOPCS.toAbstractOStmtIn)
       (init := init)
       (impl := impl) := by
-  exact OracleReduction.append_perfectCompleteness
+  exact OracleReduction.append_perfectCompleteness (QueryImpl.isStateless_of_isEmpty impl)
     (R₁ := batchingCoreReduction κ L K P ℓ ℓ' h_l mlIOPCS)
     (R₂ := mlIOPCS.oracleReduction)
     (Oₛ₃ := fun i : Empty => nomatch i)

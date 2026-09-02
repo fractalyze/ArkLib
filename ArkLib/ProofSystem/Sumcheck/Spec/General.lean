@@ -204,10 +204,10 @@ variable {σ : Type} {init : ProbComp σ} {impl : QueryImpl oSpec (StateT σ Pro
 open NNReal
 
 /-- Perfect completeness for the (full) sum-check protocol -/
-theorem reduction_perfectCompleteness :
+theorem reduction_perfectCompleteness (hst : impl.IsStateless) :
     (reduction R deg D n oSpec).perfectCompleteness init impl
       (relationRound R n deg D 0) (relationRound R n deg D (.last n)) :=
-  Reduction.seqCompose_perfectCompleteness
+  Reduction.seqCompose_perfectCompleteness hst
     (rel := relationRound R n deg D)
     (R := SingleRound.reduction R n deg D oSpec)
     (h := fun i => SingleRound.reduction_perfectCompleteness i)

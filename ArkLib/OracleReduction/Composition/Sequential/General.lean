@@ -4,7 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Quang Dao
 -/
 
-import ArkLib.OracleReduction.Composition.Sequential.Append
+import ArkLib.OracleReduction.Composition.Sequential.AppendCompleteness
 
 /-!
   # Sequential Composition of Many Oracle Reductions
@@ -346,7 +346,7 @@ open scoped NNReal
 namespace Reduction
 
 omit Oₘ in
-theorem seqCompose_completeness
+theorem seqCompose_completeness (hst : impl.IsStateless)
     (rel : (i : Fin (m + 1)) → Set (Stmt i × Wit i))
     (R : ∀ i, Reduction oSpec (Stmt i.castSucc) (Wit i.castSucc) (Stmt i.succ) (Wit i.succ)
       (pSpec i))
@@ -362,13 +362,13 @@ theorem seqCompose_completeness
       (fun i => completenessError i.succ) (fun i => h i.succ)
     simp at this
     rw [Fin.sum_univ_succ]
-    exact append_completeness
+    exact append_completeness hst
       (R 0)
       (seqCompose (Stmt ∘ Fin.succ) (Wit ∘ Fin.succ) (fun i => R (Fin.succ i)))
       (h 0) this
 
 omit Oₘ in
-theorem seqCompose_perfectCompleteness
+theorem seqCompose_perfectCompleteness (hst : impl.IsStateless)
     (rel : (i : Fin (m + 1)) → Set (Stmt i × Wit i))
     (R : ∀ i, Reduction oSpec (Stmt i.castSucc) (Wit i.castSucc) (Stmt i.succ) (Wit i.succ)
       (pSpec i))
@@ -376,7 +376,7 @@ theorem seqCompose_perfectCompleteness
       (Reduction.seqCompose Stmt Wit R).perfectCompleteness
         init impl (rel 0) (rel (Fin.last m)) := by
   unfold perfectCompleteness
-  convert seqCompose_completeness rel R 0 h
+  convert seqCompose_completeness hst rel R 0 h
   simp
 
 end Reduction
@@ -495,7 +495,7 @@ end Verifier
 
 namespace OracleReduction
 
-theorem seqCompose_completeness
+theorem seqCompose_completeness (hst : impl.IsStateless)
     (rel : (i : Fin (m + 1)) → Set ((Stmt i × ∀ j, OStmt i j) × Wit i))
     (R : ∀ i, OracleReduction oSpec (Stmt i.castSucc) (OStmt i.castSucc) (Wit i.castSucc)
       (Stmt i.succ) (OStmt i.succ) (Wit i.succ) (pSpec i))
@@ -504,11 +504,11 @@ theorem seqCompose_completeness
       (OracleReduction.seqCompose Stmt OStmt Wit R).completeness
         init impl (rel 0) (rel (Fin.last m)) (∑ i, completenessError i) := by
   unfold completeness at h ⊢
-  convert Reduction.seqCompose_completeness rel (fun i => (R i).toReduction)
+  convert Reduction.seqCompose_completeness hst rel (fun i => (R i).toReduction)
     completenessError h
   simp only [seqCompose_toReduction]
 
-theorem seqCompose_perfectCompleteness
+theorem seqCompose_perfectCompleteness (hst : impl.IsStateless)
     (rel : (i : Fin (m + 1)) → Set ((Stmt i × ∀ j, OStmt i j) × Wit i))
     (R : ∀ i, OracleReduction oSpec (Stmt i.castSucc) (OStmt i.castSucc) (Wit i.castSucc)
       (Stmt i.succ) (OStmt i.succ) (Wit i.succ) (pSpec i))
@@ -517,7 +517,7 @@ theorem seqCompose_perfectCompleteness
         init impl (rel 0) (rel (Fin.last m)) := by
   change (OracleReduction.seqCompose Stmt OStmt Wit R).completeness
     init impl (rel 0) (rel (Fin.last m)) 0
-  have hc := seqCompose_completeness rel R 0 h
+  have hc := seqCompose_completeness hst rel R 0 h
   simpa using hc
 
 end OracleReduction
