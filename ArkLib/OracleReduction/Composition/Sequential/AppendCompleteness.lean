@@ -117,6 +117,65 @@ theorem append_run_run_flat (R₁ : Reduction oSpec Stmt₁ Wit₁ Stmt₂ Wit�
   rw [append_run_run]
   simp only [OptionT.run_liftM_bind, OptionT.run_getM_bind, OptionT.run_pure]
 
+/-- **The appended run with the two verifiers split apart.** `append_run_run_flat` leaves
+`V₁ ; V₂` as one `OptionT` block; this pulls its failure bookkeeping out into the two
+`Option.elim`s the swap has to commute past. -/
+theorem append_run_run_split (R₁ : Reduction oSpec Stmt₁ Wit₁ Stmt₂ Wit₂ pSpec₁)
+    (R₂ : Reduction oSpec Stmt₂ Wit₂ Stmt₃ Wit₃ pSpec₂) (stmt : Stmt₁) (wit : Wit₁) :
+    (Reduction.run stmt wit (R₁.append R₂)).run
+      = (do
+          let x ← (liftM (Prover.run stmt wit R₁.prover) : Comp oSpec pSpec₁ pSpec₂ _)
+          let y ← (liftM (Prover.run x.2.1 x.2.2 R₂.prover) : Comp oSpec pSpec₁ pSpec₂ _)
+          let o₂ ← (liftM (R₁.verifier.verify stmt x.1).run : Comp oSpec pSpec₁ pSpec₂ _)
+          Option.elim o₂ (pure none) fun s₂ => do
+            let o₃ ← (liftM (R₂.verifier.verify s₂ y.1).run : Comp oSpec pSpec₁ pSpec₂ _)
+            Option.elim o₃ (pure none) fun s₃ =>
+              pure (some ((x.1 ++ₜ y.1, y.2.1, y.2.2), s₃))) := by
+  rw [append_run_run_flat]
+  refine bind_congr fun x => bind_congr fun y => ?_
+  simp only [OptionT.run_bind, Option.elimM, liftM_bind, bind_assoc]
+  refine bind_congr fun o => ?_
+  cases o <;> simp
+
+section Recognise
+
+variable (R₁ : Reduction oSpec Stmt₁ Wit₁ Stmt₂ Wit₂ pSpec₁)
+  (R₂ : Reduction oSpec Stmt₂ Wit₂ Stmt₃ Wit₃ pSpec₂)
+
+/-- **The left phase is `R₁.run`.** In the swapped appended run, `P₁` followed by `V₁` is
+exactly `R₁.run` lifted into the appended protocol, with the `Option` packaging left as an
+outer `map` so the pair `(x, o₂)` -- which the appended run still needs -- survives. -/
+theorem liftM_run_left_eq_map (stmt : Stmt₁) (wit : Wit₁) :
+    (liftM ((Reduction.run stmt wit R₁).run) : Comp oSpec pSpec₁ pSpec₂ _)
+      = (fun p => Option.elim p.2 none fun s₂ => some (p.1, s₂)) <$> (do
+          let x ← (liftM (Prover.run stmt wit R₁.prover) : Comp oSpec pSpec₁ pSpec₂ _)
+          let o₂ ← (liftM (R₁.verifier.verify stmt x.1).run : Comp oSpec pSpec₁ pSpec₂ _)
+          pure (x, o₂)) := by
+  rw [run_run_flat]
+  simp only [liftM_bind, Prover.liftM_liftM_base, map_bind, bind_assoc, pure_bind]
+  refine bind_congr fun x => bind_congr fun o => ?_
+  cases o <;> simp
+
+/-- **The right phase is `R₂.run`.** The appended run carries `P₁`'s transcript into the
+output; `R₂.run` does not, so the two differ by that one `map` -- which the completeness
+event ignores. -/
+theorem liftM_run_right_eq_map (s₂ : Stmt₂) (w₂ : Wit₂)
+    (tr₁ : pSpec₁.FullTranscript) :
+    (Option.map (fun q : (pSpec₂.FullTranscript × Stmt₃ × Wit₃) × Stmt₃ =>
+        ((tr₁ ++ₜ q.1.1, q.1.2.1, q.1.2.2), q.2))) <$>
+        (liftM ((Reduction.run s₂ w₂ R₂).run) : Comp oSpec pSpec₁ pSpec₂ _)
+      = (do
+          let y ← (liftM (Prover.run s₂ w₂ R₂.prover) : Comp oSpec pSpec₁ pSpec₂ _)
+          let o₃ ← (liftM (R₂.verifier.verify s₂ y.1).run : Comp oSpec pSpec₁ pSpec₂ _)
+          Option.elim o₃ (pure none) fun s₃ =>
+            pure (some ((tr₁ ++ₜ y.1, y.2.1, y.2.2), s₃))) := by
+  rw [run_run_flat]
+  simp only [liftM_bind, Prover.liftM_liftM_base_right, map_bind, bind_assoc, pure_bind]
+  refine bind_congr fun y => bind_congr fun o => ?_
+  cases o <;> simp
+
+end Recognise
+
 section ChallengeRestrict
 
 variable {σ : Type} [∀ i, SampleableType (pSpec₁.Challenge i)]
@@ -208,6 +267,31 @@ lemma evalDist_simulateQ_liftM_right (c : OracleComp (oSpec + [pSpec₂.Challeng
         exact hfin
     rw [hhead]
     exact bind_congr fun p => ih p.1 p.2
+
+
+/-- **The swap.** `Reduction.append` runs `P₂` before `V₁`; `R₁` then `R₂` runs `V₁` before
+`P₂`. Both read only what `P₁` produced -- `P₂` its output context, `V₁` its transcript -- and
+neither reads the other, so a commutative handler cannot tell the two orders apart.
+
+This is the step `AppendCounterexample.lean` shows is false without `IsCommutative`: there the
+handler reports the order it was called in, `V₁` sees the state `P₂` left, and the appended
+reduction rejects with probability one. -/
+theorem evalDist_append_run_swapped
+    (hcomm : (pImplOf (pSpec₁ ++ₚ pSpec₂) impl).IsCommutative)
+    (R₁ : Reduction oSpec Stmt₁ Wit₁ Stmt₂ Wit₂ pSpec₁)
+    (R₂ : Reduction oSpec Stmt₂ Wit₂ Stmt₃ Wit₃ pSpec₂) (stmt : Stmt₁) (wit : Wit₁) (s : σ) :
+    𝒟[StateT.run (simulateQ (pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+        (Reduction.run stmt wit (R₁.append R₂)).run) s]
+      = 𝒟[StateT.run (simulateQ (pImplOf (pSpec₁ ++ₚ pSpec₂) impl) (do
+          let x ← (liftM (Prover.run stmt wit R₁.prover) : Comp oSpec pSpec₁ pSpec₂ _)
+          let o₂ ← (liftM (R₁.verifier.verify stmt x.1).run : Comp oSpec pSpec₁ pSpec₂ _)
+          let y ← (liftM (Prover.run x.2.1 x.2.2 R₂.prover) : Comp oSpec pSpec₁ pSpec₂ _)
+          Option.elim o₂ (pure none) fun s₂ => do
+            let o₃ ← (liftM (R₂.verifier.verify s₂ y.1).run : Comp oSpec pSpec₁ pSpec₂ _)
+            Option.elim o₃ (pure none) fun s₃ =>
+              pure (some ((x.1 ++ₜ y.1, y.2.1, y.2.2), s₃)))) s] := by
+  rw [append_run_run_split]
+  exact hcomm.bind_prefix _ _ _ _ s
 
 end ChallengeRestrict
 
