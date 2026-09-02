@@ -56,6 +56,25 @@ def skip {k : ℕ} {hk : k < n} (c : pSpec.ChalsBelow k)
     else Direction.noConfusion (i.2.symm.trans
       ((congrArg pSpec.dir (Fin.ext (show (i.1 : ℕ) = k by omega))).trans h))
 
+/-- Below the new round, an extended vector is the one it extends. -/
+@[simp] lemma snoc_of_lt {k : ℕ} {hk : k < n} (c : pSpec.ChalsBelow k)
+    (h : pSpec.dir ⟨k, hk⟩ = .V_to_P) (x : pSpec.Challenge ⟨⟨k, hk⟩, h⟩)
+    (i : pSpec.ChallengeIdx) (hi : (i.1 : ℕ) < k + 1) (hik : (i.1 : ℕ) < k) :
+    c.snoc h x i hi = c i hik := dif_pos hik
+
+/-- At the new round, an extended vector is the challenge it was extended by. -/
+@[simp] lemma snoc_self {k : ℕ} {hk : k < n} (c : pSpec.ChalsBelow k)
+    (h : pSpec.dir ⟨k, hk⟩ = .V_to_P) (x : pSpec.Challenge ⟨⟨k, hk⟩, h⟩)
+    (hi : ((⟨⟨k, hk⟩, h⟩ : pSpec.ChallengeIdx).1 : ℕ) < k + 1) :
+    c.snoc h x ⟨⟨k, hk⟩, h⟩ hi = x := by
+  rw [ChalsBelow.snoc, dif_neg (lt_irrefl k)]
+  exact eq_of_heq (cast_heq _ x)
+
+/-- Below the skipped round, an extended vector is the one it extends. -/
+@[simp] lemma skip_of_lt {k : ℕ} {hk : k < n} (c : pSpec.ChalsBelow k)
+    (h : pSpec.dir ⟨k, hk⟩ = .P_to_V) (i : pSpec.ChallengeIdx) (hi : (i.1 : ℕ) < k + 1)
+    (hik : (i.1 : ℕ) < k) : c.skip h i hi = c i hik := dif_pos hik
+
 end ChalsBelow
 
 variable [∀ i, SampleableType (pSpec.Challenge i)]
@@ -80,6 +99,33 @@ def chalImplBelow {k : ℕ} (c : pSpec.ChalsBelow k) :
 @[simp] lemma chalImplBelow_apply_of_lt {k : ℕ} (c : pSpec.ChalsBelow k)
     (q : ([pSpec.Challenge]ₒ'challengeOracleInterface).Domain) (h : (q.1.1 : ℕ) < k) :
     chalImplBelow c q = pure (c q.1 h) := dif_pos h
+
+/-- `drawChalsBelow` one round on, at a challenge round. -/
+theorem drawChalsBelow_succ_challenge {k : ℕ} (hk : k + 1 ≤ n)
+    (hd : pSpec.dir ⟨k, by omega⟩ = .V_to_P) :
+    pSpec.drawChalsBelow (k + 1) hk
+      = pSpec.drawChalsBelow k (by omega) >>= fun c =>
+          (fun x => c.snoc hd x) <$> ($ᵗ (pSpec.Challenge ⟨⟨k, by omega⟩, hd⟩)) := by
+  rw [drawChalsBelow]
+  refine bind_congr fun c => ?_
+  split
+  · rfl
+  · rename_i hd'; exact Direction.noConfusion (hd.symm.trans hd')
+
+/-- `drawChalsBelow` one round on, at a message round: nothing is drawn. -/
+theorem drawChalsBelow_succ_message {k : ℕ} (hk : k + 1 ≤ n)
+    (hd : pSpec.dir ⟨k, by omega⟩ = .P_to_V) :
+    pSpec.drawChalsBelow (k + 1) hk
+      = pSpec.drawChalsBelow k (by omega) >>= fun c => pure (c.skip hd) := by
+  rw [drawChalsBelow]
+  refine bind_congr fun c => ?_
+  split
+  · rename_i hd'; exact Direction.noConfusion (hd.symm.trans hd')
+  · rfl
+
+@[simp] lemma chalImplBelow_apply_of_ge {k : ℕ} (c : pSpec.ChalsBelow k)
+    (q : ([pSpec.Challenge]ₒ'challengeOracleInterface).Domain) (h : ¬ ((q.1.1 : ℕ) < k)) :
+    chalImplBelow c q = $ᵗ (pSpec.Challenge q.1) := dif_neg h
 
 @[simp] lemma chalImplBelow_nil : (chalImplBelow (ChalsBelow.nil (pSpec := pSpec)))
     = challengeQueryImpl := by
@@ -165,5 +211,215 @@ theorem simulateQ_runToRound_congr (implP : QueryImpl oSpec ProbComp)
         (congrArg (fun A => A >>= _) (Eq.trans (simulateQ_addLift_base _ _ _)
           (simulateQ_addLift_base _ _ _).symm))
       rfl
+
+
+/-- One round of a run, as a function of the state it starts from. `processRound` is exactly a
+bind of this, which is what lets the round induction below talk about the round's body on its
+own. -/
+def roundBody (Q : Prover oSpec S W S' W' pSpec) (j : Fin n)
+    (p : pSpec.Transcript j.castSucc × Q.PrvState j.castSucc) :
+    OracleComp (oSpec + [pSpec.Challenge]ₒ) (pSpec.Transcript j.succ × Q.PrvState j.succ) :=
+  match hDir : pSpec.dir j with
+  | .V_to_P => do
+      let update ← Q.receiveChallenge ⟨j, hDir⟩ p.2
+      let challenge ← pSpec.getChallenge ⟨j, hDir⟩
+      return ⟨p.1.concat challenge, update challenge⟩
+  | .P_to_V => do
+      let ⟨msg, newState⟩ ← Q.sendMessage ⟨j, hDir⟩ p.2
+      return ⟨p.1.concat msg, newState⟩
+
+theorem processRound_eq_bind (Q : Prover oSpec S W S' W' pSpec) (j : Fin n)
+    (X : OracleComp (oSpec + [pSpec.Challenge]ₒ)
+      (pSpec.Transcript j.castSucc × Q.PrvState j.castSucc)) :
+    Prover.processRound j Q X = X >>= roundBody Q j := rfl
+
+
+/-- `roundBody` at a challenge round. -/
+theorem roundBody_challenge (Q : Prover oSpec S W S' W' pSpec) (j : Fin n)
+    (hd : pSpec.dir j = .V_to_P) (p : pSpec.Transcript j.castSucc × Q.PrvState j.castSucc) :
+    Prover.roundBody Q j p = (do
+      let update ← Q.receiveChallenge ⟨j, hd⟩ p.2
+      let challenge ← pSpec.getChallenge ⟨j, hd⟩
+      return ⟨p.1.concat challenge, update challenge⟩) := by
+  unfold Prover.roundBody
+  split
+  · rfl
+  · rename_i hd'; exact Direction.noConfusion (hd.symm.trans hd')
+
+/-- `roundBody` at a message round. -/
+theorem roundBody_message (Q : Prover oSpec S W S' W' pSpec) (j : Fin n)
+    (hd : pSpec.dir j = .P_to_V) (p : pSpec.Transcript j.castSucc × Q.PrvState j.castSucc) :
+    Prover.roundBody Q j p = (do
+      let r ← Q.sendMessage ⟨j, hd⟩ p.2
+      return ⟨p.1.concat r.1, r.2⟩) := by
+  unfold Prover.roundBody
+  split
+  · rename_i hd'; exact Direction.noConfusion (hd.symm.trans hd')
+  · rfl
+
+/-- Simulating a challenge round: the prover's own step runs under `implP`, and the round's
+challenge is whatever the challenge handler `g` returns for that round. -/
+theorem simulateQ_roundBody_challenge (implP : QueryImpl oSpec ProbComp)
+    (g : QueryImpl ([pSpec.Challenge]ₒ'challengeOracleInterface) ProbComp)
+    (Q : Prover oSpec S W S' W' pSpec) (j : Fin n) (hd : pSpec.dir j = .V_to_P)
+    (p : pSpec.Transcript j.castSucc × Q.PrvState j.castSucc) :
+    simulateQ (implP.addLift g : QueryImpl (oSpec + [pSpec.Challenge]ₒ) ProbComp)
+        (Prover.roundBody Q j p)
+      = simulateQ implP (Q.receiveChallenge ⟨j, hd⟩ p.2) >>= fun u =>
+          g ⟨⟨j, hd⟩, ()⟩ >>= fun ch => (pure (p.1.concat ch, u ch) : ProbComp _) := by
+  rw [roundBody_challenge Q j hd p]
+  refine Eq.trans (simulateQ_bind _ _ _) ?_
+  refine Eq.trans (congrArg (fun A => A >>= _) (simulateQ_addLift_base _ _ _)) ?_
+  refine bind_congr fun u => ?_
+  refine Eq.trans (simulateQ_bind _ _ _) ?_
+  refine Eq.trans (congrArg (fun A => A >>= _)
+    (Eq.trans (simulateQ_addLift_added _ _ _) (simulateQ_spec_query _ _))) ?_
+  rfl
+
+/-- Simulating a message round: no challenge is drawn, so the challenge handler is untouched. -/
+theorem simulateQ_roundBody_message (implP : QueryImpl oSpec ProbComp)
+    (g : QueryImpl ([pSpec.Challenge]ₒ'challengeOracleInterface) ProbComp)
+    (Q : Prover oSpec S W S' W' pSpec) (j : Fin n) (hd : pSpec.dir j = .P_to_V)
+    (p : pSpec.Transcript j.castSucc × Q.PrvState j.castSucc) :
+    simulateQ (implP.addLift g : QueryImpl (oSpec + [pSpec.Challenge]ₒ) ProbComp)
+        (Prover.roundBody Q j p)
+      = simulateQ implP (Q.sendMessage ⟨j, hd⟩ p.2) >>= fun r =>
+          (pure (p.1.concat r.1, r.2) : ProbComp _) := by
+  rw [roundBody_message Q j hd p]
+  refine Eq.trans (simulateQ_bind _ _ _) ?_
+  refine Eq.trans (congrArg (fun A => A >>= _) (simulateQ_addLift_base _ _ _)) ?_
+  rfl
+
+
+open OracleComp.DeferredSampling in
+/-- Moving an independent draw from the innermost position of a bind chain to the front. -/
+private lemma evalDist_pull {α β γ δ : Type} (A : ProbComp α) (R : α → ProbComp β)
+    (C : ProbComp γ) (f : α → β → γ → δ) :
+    𝒟[A >>= fun a => R a >>= fun b => C >>= fun c => (pure (f a b c) : ProbComp δ)]
+      = 𝒟[C >>= fun c => A >>= fun a => R a >>= fun b => (pure (f a b c) : ProbComp δ)] :=
+  (evalDist_bind_congr_left A _ _ fun a => evalDist_bind_comm (R a) C _).trans
+    (evalDist_bind_comm A C _)
+
+open OracleComp.DeferredSampling in
+/-- Two computations with the same distribution have the same distribution after a common
+continuation. -/
+private lemma evalDist_bind_congr_prefix {α β : Type} {A B : ProbComp α} (h : 𝒟[A] = 𝒟[B])
+    (K : α → ProbComp β) : 𝒟[A >>= K] = 𝒟[B >>= K] := by
+  rw [evalDist_bind, evalDist_bind, h]
+
+section Eager
+
+variable [∀ i, SampleableType (pSpec.Challenge i)]
+
+open OracleComp.DeferredSampling in
+/-- **The challenges may be drawn before the run.** Running with the challenge oracle live is
+distributed like drawing every challenge of the first `k` rounds up front and serving those back.
+
+The two differ only in *where* each draw happens, and a challenge draw is independent of everything
+around it, so it commutes forward past the prover's own steps (`evalDist_bind_comm`). The induction
+moves one round's draw at a time; `simulateQ_runToRound_congr` is what lets the prefix already
+accounted for stay untouched. -/
+theorem evalDist_runToRound_drawFirst (implP : QueryImpl oSpec ProbComp)
+    (Q : Prover oSpec S W S' W' pSpec) (stmt : S) (wit : W) :
+    ∀ (k : ℕ) (hk : k ≤ n),
+      𝒟[simulateQ (implP.addLift challengeQueryImpl :
+            QueryImpl (oSpec + [pSpec.Challenge]ₒ) ProbComp)
+          (Q.runToRound ⟨k, by omega⟩ stmt wit)]
+        = 𝒟[pSpec.drawChalsBelow k hk >>= fun c =>
+              simulateQ (implP.addLift (chalImplBelow c) :
+                  QueryImpl (oSpec + [pSpec.Challenge]ₒ) ProbComp)
+                (Q.runToRound ⟨k, by omega⟩ stmt wit)] := by
+  intro k
+  induction k with
+  | zero =>
+    intro hk
+    rw [show pSpec.drawChalsBelow 0 hk = pure ChalsBelow.nil from rfl, pure_bind,
+      chalImplBelow_nil]
+  | succ k ih =>
+    intro hk
+    have hkn : k < n := by omega
+    have hsplit : ∀ g : QueryImpl ([pSpec.Challenge]ₒ'challengeOracleInterface) ProbComp,
+        simulateQ (implP.addLift g : QueryImpl (oSpec + [pSpec.Challenge]ₒ) ProbComp)
+            (Q.runToRound ⟨k, by omega⟩ stmt wit >>= Prover.roundBody Q ⟨k, hkn⟩)
+          = simulateQ (implP.addLift g : QueryImpl (oSpec + [pSpec.Challenge]ₒ) ProbComp)
+              (Q.runToRound ⟨k, by omega⟩ stmt wit)
+              >>= fun p => simulateQ (implP.addLift g :
+                    QueryImpl (oSpec + [pSpec.Challenge]ₒ) ProbComp)
+                  (Prover.roundBody Q ⟨k, hkn⟩ p) := fun g => simulateQ_bind _ _ _
+    have hloc : ∀ (c : pSpec.ChalsBelow (k + 1)) (c₀ : pSpec.ChalsBelow k),
+        (∀ (i : pSpec.ChallengeIdx) (hi : (i.1 : ℕ) < k + 1) (hi₀ : (i.1 : ℕ) < k),
+            c i hi = c₀ i hi₀) →
+        simulateQ (implP.addLift (chalImplBelow c) :
+              QueryImpl (oSpec + [pSpec.Challenge]ₒ) ProbComp)
+            (Q.runToRound ⟨k, by omega⟩ stmt wit)
+          = simulateQ (implP.addLift (chalImplBelow c₀) :
+                QueryImpl (oSpec + [pSpec.Challenge]ₒ) ProbComp)
+              (Q.runToRound ⟨k, by omega⟩ stmt wit) := by
+      intro c c₀ hcc
+      refine simulateQ_runToRound_congr implP _ _ Q stmt wit k (by omega) fun q hq => ?_
+      rw [chalImplBelow_apply_of_lt _ _ (by omega), chalImplBelow_apply_of_lt _ _ hq, hcc]
+    rw [runToRound_mk_succ Q k hkn, processRound_eq_bind]
+    cases hd : pSpec.dir ⟨k, hkn⟩ with
+    | P_to_V =>
+      have hR : (pSpec.drawChalsBelow (k + 1) hk >>= fun c' =>
+            simulateQ (implP.addLift (chalImplBelow c') :
+                QueryImpl (oSpec + [pSpec.Challenge]ₒ) ProbComp)
+              (Q.runToRound ⟨k, by omega⟩ stmt wit >>= Prover.roundBody Q ⟨k, hkn⟩))
+          = (pSpec.drawChalsBelow k (by omega) >>= fun c =>
+              simulateQ (implP.addLift (chalImplBelow c) :
+                  QueryImpl (oSpec + [pSpec.Challenge]ₒ) ProbComp)
+                (Q.runToRound ⟨k, by omega⟩ stmt wit))
+              >>= fun p : pSpec.Transcript (Fin.mk k hkn).castSucc ×
+                    Q.PrvState (Fin.mk k hkn).castSucc =>
+                  simulateQ implP (Q.sendMessage ⟨⟨k, hkn⟩, hd⟩ p.2)
+                    >>= fun r => (pure (p.1.concat r.1, r.2) : ProbComp _) := by
+        rw [drawChalsBelow_succ_message hk hd, bind_assoc, bind_assoc]
+        refine bind_congr fun c => ?_
+        rw [pure_bind, hsplit,
+          hloc (c.skip hd) c fun i hi hi₀ => ChalsBelow.skip_of_lt c hd i hi hi₀]
+        exact bind_congr fun p => simulateQ_roundBody_message implP _ Q ⟨k, hkn⟩ hd p
+      refine Eq.trans (congrArg evalDist (hsplit challengeQueryImpl))
+        (Eq.trans ?_ (congrArg evalDist hR).symm)
+      refine Eq.trans (congrArg evalDist (bind_congr fun p =>
+        simulateQ_roundBody_message implP _ Q ⟨k, hkn⟩ hd p)) ?_
+      exact evalDist_bind_congr_prefix (ih (by omega)) _
+    | V_to_P =>
+      have hR : (pSpec.drawChalsBelow (k + 1) hk >>= fun c' =>
+            simulateQ (implP.addLift (chalImplBelow c') :
+                QueryImpl (oSpec + [pSpec.Challenge]ₒ) ProbComp)
+              (Q.runToRound ⟨k, by omega⟩ stmt wit >>= Prover.roundBody Q ⟨k, hkn⟩))
+          = pSpec.drawChalsBelow k (by omega) >>= fun c =>
+              ($ᵗ (pSpec.Challenge ⟨⟨k, hkn⟩, hd⟩)) >>= fun x =>
+                simulateQ (implP.addLift (chalImplBelow c) :
+                    QueryImpl (oSpec + [pSpec.Challenge]ₒ) ProbComp)
+                  (Q.runToRound ⟨k, by omega⟩ stmt wit)
+                  >>= fun p : pSpec.Transcript (Fin.mk k hkn).castSucc ×
+                        Q.PrvState (Fin.mk k hkn).castSucc =>
+                      simulateQ implP (Q.receiveChallenge ⟨⟨k, hkn⟩, hd⟩ p.2)
+                        >>= fun u => (pure (p.1.concat x, u x) : ProbComp _) := by
+        rw [drawChalsBelow_succ_challenge hk hd, bind_assoc]
+        refine bind_congr fun c => ?_
+        rw [bind_map_left]
+        refine bind_congr fun x => ?_
+        rw [hsplit, hloc _ c fun i hi hi₀ => ChalsBelow.snoc_of_lt c hd x i hi hi₀]
+        refine bind_congr fun p => ?_
+        rw [simulateQ_roundBody_challenge implP _ Q ⟨k, hkn⟩ hd p,
+          chalImplBelow_apply_of_lt _ _ (Nat.lt_succ_self k), ChalsBelow.snoc_self]
+        exact bind_congr fun u => pure_bind _ _
+      have hL : ∀ p, simulateQ (implP.addLift challengeQueryImpl :
+              QueryImpl (oSpec + [pSpec.Challenge]ₒ) ProbComp)
+            (Prover.roundBody Q ⟨k, hkn⟩ p)
+          = simulateQ implP (Q.receiveChallenge ⟨⟨k, hkn⟩, hd⟩ p.2) >>= fun u =>
+              ($ᵗ (pSpec.Challenge ⟨⟨k, hkn⟩, hd⟩)) >>= fun ch =>
+                (pure (p.1.concat ch, u ch) : ProbComp _) :=
+        fun p => simulateQ_roundBody_challenge implP _ Q ⟨k, hkn⟩ hd p
+      refine Eq.trans (congrArg evalDist (hsplit challengeQueryImpl))
+        (Eq.trans ?_ (congrArg evalDist hR).symm)
+      refine Eq.trans (congrArg evalDist (bind_congr fun p => hL p)) ?_
+      refine Eq.trans (evalDist_bind_congr_prefix (ih (by omega)) _) ?_
+      refine Eq.trans (congrArg evalDist (bind_assoc _ _ _)) ?_
+      exact evalDist_bind_congr_left _ _ _ fun c => evalDist_pull _ _ _ _
+
+end Eager
 
 end Prover
