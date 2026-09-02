@@ -420,6 +420,32 @@ theorem evalDist_runToRound_drawFirst (implP : QueryImpl oSpec ProbComp)
       refine Eq.trans (congrArg evalDist (bind_assoc _ _ _)) ?_
       exact evalDist_bind_congr_left _ _ _ fun c => evalDist_pull _ _ _ _
 
-end Eager
 
-end Prover
+open OracleComp.DeferredSampling in
+/-- **The challenges may be drawn before the whole run**, `Prover.output` included. The output
+step queries only the base spec, so it rides along untouched. -/
+theorem evalDist_run_drawFirst (implP : QueryImpl oSpec ProbComp)
+    (Q : Prover oSpec S W S' W' pSpec) (stmt : S) (wit : W) :
+    𝒟[simulateQ (implP.addLift challengeQueryImpl :
+          QueryImpl (oSpec + [pSpec.Challenge]ₒ) ProbComp) (Q.run stmt wit)]
+      = 𝒟[pSpec.drawChalsBelow n le_rfl >>= fun c =>
+            simulateQ (implP.addLift (chalImplBelow c) :
+                QueryImpl (oSpec + [pSpec.Challenge]ₒ) ProbComp) (Q.run stmt wit)] := by
+  have hrun : ∀ g : QueryImpl ([pSpec.Challenge]ₒ'challengeOracleInterface) ProbComp,
+      simulateQ (implP.addLift g : QueryImpl (oSpec + [pSpec.Challenge]ₒ) ProbComp)
+          (Q.run stmt wit)
+        = simulateQ (implP.addLift g : QueryImpl (oSpec + [pSpec.Challenge]ₒ) ProbComp)
+            (Q.runToRound ⟨n, by omega⟩ stmt wit)
+            >>= fun p => simulateQ implP (Q.output p.2) >>= fun o =>
+                  (pure (p.1, o) : ProbComp _) := by
+    intro g
+    refine Eq.trans (simulateQ_bind _ _ _) (bind_congr fun p => ?_)
+    refine Eq.trans (simulateQ_bind _ _ _) ?_
+    exact congrArg (fun A => A >>= _) (simulateQ_addLift_base _ _ _)
+  refine Eq.trans (congrArg evalDist (hrun challengeQueryImpl)) ?_
+  refine Eq.trans ?_ (congrArg evalDist (bind_congr fun c => (hrun (chalImplBelow c)).symm))
+  refine Eq.trans (evalDist_bind_congr_prefix
+    (evalDist_runToRound_drawFirst implP Q stmt wit n le_rfl) _) ?_
+  exact congrArg evalDist (bind_assoc _ _ _)
+
+end Eager
