@@ -684,7 +684,14 @@ an arbitrary adversary be taken apart into the two component games. -/
 
 /-- If two verifiers satisfy knowledge soundness with compatible relations and respective knowledge
     errors, then their sequential composition also satisfies knowledge soundness.
-    The knowledge error of the appended verifier is the sum of the individual errors. -/
+    The knowledge error of the appended verifier is the sum of the individual errors.
+
+`Verifier.append_knowledgeSoundness_of_logIndependent` in `AppendKnowledgeSoundness.lean` proves
+this for named, log-blind extractors and a deterministic first verifier -- hypotheses that are
+vacuous at `oSpec = []ₒ`. Whether it holds in *this* generality is open, and is really a question
+about what the knowledge-soundness game should hand an extractor: the composed extractor cannot
+reconstruct the first component's verifier log, because the appended verifier's log interleaves
+`V₁`'s with `V₂`'s and nothing records the split. -/
 theorem append_knowledgeSoundness
     (V₁ : Verifier oSpec Stmt₁ Stmt₂ pSpec₁)
     (V₂ : Verifier oSpec Stmt₂ Stmt₃ pSpec₂)

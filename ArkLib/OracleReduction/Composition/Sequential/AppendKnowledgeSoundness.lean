@@ -975,6 +975,26 @@ theorem append_knowledgeSoundnessWith [Nonempty Stmt₂] [Nonempty Wit₂]
       (Classical.arbitrary Stmt₂) stmtIn witIn h₁
   · exact probEvent_ksExecInstr_le_two hcomm verify E₁ hE₂ V₁ hV₁ V₂ P
       (Classical.arbitrary Stmt₂) stmtIn witIn h₂
+open scoped NNReal in
+/-- **Sequential composition preserves knowledge soundness**, in the existential form, for
+log-blind extractors and a deterministic first verifier.
+
+`Verifier.append_knowledgeSoundness` in `Append.lean` states this without those hypotheses and is
+still admitted; whether it holds in that generality is the open question about what the
+knowledge-soundness game should hand an extractor. See `Extractor.Straightline.IsLogIndependent`. -/
+theorem append_knowledgeSoundness_of_logIndependent [Nonempty Stmt₂] [Nonempty Wit₂]
+    (hst : impl.IsStateless) (verify : Stmt₁ → pSpec₁.FullTranscript → Stmt₂)
+    (V₁ : Verifier oSpec Stmt₁ Stmt₂ pSpec₁) (hV₁ : V₁ = ⟨fun s t => pure (verify s t)⟩)
+    (V₂ : Verifier oSpec Stmt₂ Stmt₃ pSpec₂)
+    {E₁ : Extractor.Straightline oSpec Stmt₁ Wit₁ Wit₂ pSpec₁} (hE₁ : E₁.IsLogIndependent)
+    {E₂ : Extractor.Straightline oSpec Stmt₂ Wit₂ Wit₃ pSpec₂} (hE₂ : E₂.IsLogIndependent)
+    {ε₁ ε₂ : ℝ≥0}
+    (h₁ : V₁.knowledgeSoundnessWith init impl rel₁ rel₂ E₁ ε₁)
+    (h₂ : ∀ s : σ, V₂.knowledgeSoundnessWith (pure s) impl rel₂ rel₃ E₂ ε₂) :
+      (V₁.append V₂).knowledgeSoundness init impl rel₁ rel₃ (ε₁ + ε₂) :=
+  ⟨Extractor.Straightline.appendDet verify E₁ E₂,
+    append_knowledgeSoundnessWith hst verify V₁ hV₁ V₂ hE₁ hE₂ h₁ h₂⟩
+
 end Verifier
 
 end Compose
