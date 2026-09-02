@@ -219,6 +219,28 @@ section Compose
 
 namespace Verifier
 
+open scoped NNReal in
+/-- **Knowledge soundness against a randomized adversary, on the log-free game.** The `ksExec`
+form of `Verifier.knowledgeSoundnessWith_randomized`: the parameter is drawn first, and each
+member of the family is covered by the hypothesis. -/
+theorem knowledgeSoundnessWith_randomized_ksExec {StmtIn WitIn StmtOut WitOut : Type} {N : ℕ}
+    {pSpec : ProtocolSpec N} [∀ i, SampleableType (pSpec.Challenge i)] {σ : Type}
+    {init : ProbComp σ} {impl : QueryImpl oSpec (StateT σ ProbComp)}
+    {relIn : Set (StmtIn × WitIn)} {relOut : Set (StmtOut × WitOut)}
+    {V : Verifier oSpec StmtIn StmtOut pSpec}
+    {E : Extractor.Straightline oSpec StmtIn WitIn WitOut pSpec} (hE : E.IsLogIndependent)
+    {ε : ℝ≥0} (h : V.knowledgeSoundnessWith init impl relIn relOut E ε)
+    {ρ : Type} (aux : ProbComp ρ) (witIn : ρ → WitIn)
+    (Pf : ρ → Prover oSpec StmtIn WitIn StmtOut WitOut pSpec) (stmtIn : StmtIn) :
+    Pr[ fun o => Option.elim o False (ksBad relIn relOut)
+      | aux >>= fun r => init >>= fun s =>
+          StateT.run' (simulateQ (QueryImpl.addLift impl challengeQueryImpl :
+              QueryImpl (oSpec + [pSpec.Challenge]ₒ) (StateT σ ProbComp))
+            (ksExec E V (Pf r) stmtIn (witIn r)).run) s] ≤ ε := by
+  refine probEvent_bind_le_of_forall_le fun r _ => ?_
+  have := (knowledgeSoundnessWith_iff_ksExec hE).mp h stmtIn (witIn r) (Pf r)
+  rwa [OptionT.probEvent_mk] at this
+
 /-- The appended game, instrumented with the intermediate statement and the witness `E₂` extracted.
 Neither is in the game's own output, and the union bound splits on both, so they are carried along
 and projected away afterwards. -/
@@ -705,31 +727,93 @@ theorem evalDist_ksTailRight_drawFirst_stateT (hst : impl.IsStateless)
   rw [QueryImpl.simulateQ_run_of_apply hbase, evalDist_map,
     evalDist_ksTailRight_drawFirst hst.base verify E₁ E₂ V₂ P stmtIn x s₂, hmapout, evalDist_map]
 
+open scoped NNReal in
+/-- **The post-cut tail, hardwired.** The tail's distribution is that of drawing the second half's
+challenges up front and then running the whole tail as an `oSpec` computation. -/
+theorem evalDist_ksTail_drawFirst (hst : impl.IsStateless)
+    (verify : Stmt₁ → pSpec₁.FullTranscript → Stmt₂)
+    (E₁ : Extractor.Straightline oSpec Stmt₁ Wit₁ Wit₂ pSpec₁)
+    (E₂ : Extractor.Straightline oSpec Stmt₂ Wit₂ Wit₃ pSpec₂)
+    (V₂ : Verifier oSpec Stmt₂ Stmt₃ pSpec₂)
+    (P : Prover oSpec Stmt₁ Wit₁ Stmt₃ Wit₃ (pSpec₁ ++ₚ pSpec₂)) (stmtOut : Stmt₂)
+    (stmtIn : Stmt₁) (x : pSpec₁.FullTranscript × Stmt₂ × Reduction.CutState P) (s : σ) :
+    𝒟[StateT.run (simulateQ (Reduction.pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+        (ksTail verify E₁ E₂ V₂ P stmtOut stmtIn (x, some (verify stmtIn x.1)))) s]
+      = 𝒟[pSpec₂.drawChalsBelow n le_rfl >>= fun c =>
+          StateT.run (simulateQ (Reduction.pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+            (liftM (ksTailBase verify E₁ E₂ V₂ P stmtIn x (verify stmtIn x.1) c))) s] := by
+  rw [ksTail_eq verify E₁ E₂ V₂ P stmtOut stmtIn x (verify stmtIn x.1) rfl,
+    Reduction.evalDist_simulateQ_liftM_right (impl := impl) (pSpec₁ := pSpec₁) _ s,
+    evalDist_ksTailRight_drawFirst_stateT hst verify E₁ E₂ V₂ P stmtIn x
+      (verify stmtIn x.1) s, evalDist_bind, evalDist_bind]
+  refine congrArg _ (funext fun c => ?_)
+  rw [ksTailAfterProver_eq_base, ← Prover.liftM_liftM_base_right (pSpec₁ := pSpec₁),
+    ← Reduction.evalDist_simulateQ_liftM_right (impl := impl) (pSpec₁ := pSpec₁) _ s]
+
+open scoped NNReal in
+/-- **The `ε₁` comparison, with the handler state threaded.** -/
+theorem probEvent_ksGameTwo_le_ksExec (hst : impl.IsStateless)
+    (verify : Stmt₁ → pSpec₁.FullTranscript → Stmt₂)
+    (E₁ : Extractor.Straightline oSpec Stmt₁ Wit₁ Wit₂ pSpec₁)
+    (E₂ : Extractor.Straightline oSpec Stmt₂ Wit₂ Wit₃ pSpec₂)
+    (V₁ : Verifier oSpec Stmt₁ Stmt₂ pSpec₁) (hV₁ : V₁ = ⟨fun s t => pure (verify s t)⟩)
+    (V₂ : Verifier oSpec Stmt₂ Stmt₃ pSpec₂)
+    (P : Prover oSpec Stmt₁ Wit₁ Stmt₃ Wit₃ (pSpec₁ ++ₚ pSpec₂))
+    (c : pSpec₂.ChalsBelow n) (stmtOut : Stmt₂) (junk : Wit₂)
+    (stmtIn : Stmt₁) (witIn : Wit₁) (s : σ) :
+    Pr[ ksBadWeak rel₁ rel₂ | StateT.run' (simulateQ
+        (Reduction.pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+        (liftM (ksGameTwo verify E₁ E₂ V₂ P c stmtOut stmtIn witIn))) s]
+      ≤ Pr[ fun o => Option.elim o False (ksBad rel₁ rel₂) |
+          StateT.run' (simulateQ (Reduction.pImplOf pSpec₁ impl)
+            (ksExec E₁ V₁ (P.takeLeftExtract verify E₂ c stmtOut junk) stmtIn witIn).run) s] := by
+  rw [probEvent_of_evalDist_eq (Reduction.evalDist_stateT_run'_congr
+      (Reduction.evalDist_simulateQ_liftM_left (impl := impl) (pSpec₂ := pSpec₂)
+        (ksGameTwo verify E₁ E₂ V₂ P c stmtOut stmtIn witIn) s)),
+    ksExec_takeLeftExtract_run verify E₁ E₂ V₁ hV₁ P c stmtOut junk stmtIn witIn,
+    QueryImpl.simulateQ_run'_of_apply
+      (QueryImpl.isStateless_addLift_apply hst (challengeQueryImpl (pSpec := pSpec₁))),
+    QueryImpl.simulateQ_run'_of_apply
+      (QueryImpl.isStateless_addLift_apply hst (challengeQueryImpl (pSpec := pSpec₁)))]
+  exact probEvent_ksGameTwo_le hst.base verify E₁ E₂ V₂ P c stmtOut junk stmtIn witIn
+
 open OracleComp.DeferredSampling in
 open scoped NNReal in
-/-- **A stateless handler and a lossless `init` collapse a game to a plain `ProbComp`.** The
-handler's state is never read, so the initial state drops out; `hinit` is what stops `init`'s own
-failure mass from lowering the probability.
-
-Both sides of the `ε₁` comparison are put in this form, because the reordering and eager-sampling
-steps it needs are stated for `ProbComp`. -/
-theorem probEvent_collapse {N : ℕ} {pSpec : ProtocolSpec N}
-    [∀ i, SampleableType (pSpec.Challenge i)]
-    (hst : impl.IsStateless) (hinit : Pr[⊥ | init] = 0)
-    {α : Type} (Y : OracleComp (oSpec + [pSpec.Challenge]ₒ) α) (p : α → Prop) :
-    Pr[ p | init >>= fun s => StateT.run' (simulateQ
-        (QueryImpl.addLift impl challengeQueryImpl :
-          QueryImpl (oSpec + [pSpec.Challenge]ₒ) (StateT σ ProbComp)) Y) s]
-      = Pr[ p | simulateQ (hst.base.addLift challengeQueryImpl :
-          QueryImpl (oSpec + [pSpec.Challenge]ₒ) ProbComp) Y] := by
-  refine probEvent_of_evalDist_eq ?_ p
-  rw [show (fun s : σ => StateT.run' (simulateQ (QueryImpl.addLift impl challengeQueryImpl :
-          QueryImpl (oSpec + [pSpec.Challenge]ₒ) (StateT σ ProbComp)) Y) s)
-      = fun _ : σ => simulateQ (hst.base.addLift challengeQueryImpl :
-          QueryImpl (oSpec + [pSpec.Challenge]ₒ) ProbComp) Y from
-    funext fun s => QueryImpl.simulateQ_run'_of_apply
-      (QueryImpl.isStateless_addLift_apply hst challengeQueryImpl) Y s]
-  exact evalDist_bind_const_neverFails init hinit _
+/-- **The whole appended game, with the second half's challenges drawn first.** The draw commutes
+out past the first half, and what is left is the first protocol's own game -- lifted. -/
+theorem evalDist_ksExecInstr_drawFirst
+    (hcomm : (Reduction.pImplOf (pSpec₁ ++ₚ pSpec₂) impl).IsCommutative)
+    (hst : impl.IsStateless) (verify : Stmt₁ → pSpec₁.FullTranscript → Stmt₂)
+    (E₁ : Extractor.Straightline oSpec Stmt₁ Wit₁ Wit₂ pSpec₁)
+    (E₂ : Extractor.Straightline oSpec Stmt₂ Wit₂ Wit₃ pSpec₂)
+    (V₁ : Verifier oSpec Stmt₁ Stmt₂ pSpec₁) (hV₁ : V₁ = ⟨fun s t => pure (verify s t)⟩)
+    (V₂ : Verifier oSpec Stmt₂ Stmt₃ pSpec₂)
+    (P : Prover oSpec Stmt₁ Wit₁ Stmt₃ Wit₃ (pSpec₁ ++ₚ pSpec₂)) (stmtOut : Stmt₂)
+    (stmtIn : Stmt₁) (witIn : Wit₁) (s : σ) :
+    𝒟[StateT.run (simulateQ (Reduction.pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+        (ksExecInstr verify E₁ E₂ V₁ V₂ P stmtIn witIn).run) s]
+      = 𝒟[pSpec₂.drawChalsBelow n le_rfl >>= fun c =>
+          StateT.run (simulateQ (Reduction.pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+            (liftM (ksGameTwo verify E₁ E₂ V₂ P c stmtOut stmtIn witIn))) s] := by
+  have hjoin : ∀ c : pSpec₂.ChalsBelow n,
+      ((liftM ((P.takeLeft stmtOut).run stmtIn witIn) :
+          OracleComp (oSpec + [(pSpec₁ ++ₚ pSpec₂).Challenge]ₒ) _) >>= fun x =>
+        (liftM (ksTailBase verify E₁ E₂ V₂ P stmtIn x (verify stmtIn x.1) c) :
+          OracleComp (oSpec + [(pSpec₁ ++ₚ pSpec₂).Challenge]ₒ) _))
+        = liftM (ksGameTwo verify E₁ E₂ V₂ P c stmtOut stmtIn witIn) := by
+    intro c
+    rw [ksGameTwo, liftM_bind]
+    exact bind_congr fun x => (Prover.liftM_liftM_base _).symm
+  rw [evalDist_ksExecInstr_split hcomm verify E₁ E₂ V₁ V₂ P stmtOut stmtIn witIn s,
+    Reduction.soundPhase₁_det P V₁ stmtOut verify hV₁ stmtIn witIn, simulateQ_map,
+    StateT.run_map, bind_map_left, evalDist_bind]
+  simp only [evalDist_ksTail_drawFirst hst verify E₁ E₂ V₂ P stmtOut stmtIn]
+  rw [← evalDist_bind, evalDist_bind_comm, evalDist_bind]
+  conv_rhs => rw [evalDist_bind]
+  refine congrArg _ (funext fun c => ?_)
+  refine congrArg evalDist ?_
+  rw [← hjoin c]
+  simp only [simulateQ_bind, StateT.run_bind]
 
 open scoped NNReal in
 /-- **The `ε₂` half of the union bound.** On the runs where `E₂` produced no witness for `rel₂`,
@@ -781,11 +865,116 @@ theorem probEvent_ksExecInstr_le_two [Nonempty Wit₂]
         (ksTailRight verify E₁ E₂ V₂ P stmtIn q.1 (verify stmtIn q.1.1)) q.2))]
   exact probEvent_ksTailRight_le hE₂ verify E₁ V₂ P stmtIn h₂ q.1 _ q.2
 
-/-! The composition theorem itself is not here yet: what is above is the shape it needs -- the
-game taken log-free, instrumented with the two values the union bound splits on, and split at the
-cut. What remains is the two branch bounds, `ε₂` from `h₂` against the adversary's second half and
-`ε₁` from `h₁` against `Prover.takeLeftExtract`, and their assembly by
-`OracleComp.probEvent_le_add_split`. -/
+open OracleComp.DeferredSampling in
+open scoped NNReal in
+/-- **The `ε₁` half of the union bound.** On the runs where `E₂` did produce a witness for `rel₂`,
+the appended game is the first component's knowledge-soundness game against
+`Prover.takeLeftExtract`, once the second half's challenges are drawn up front. -/
+theorem probEvent_ksExecInstr_le_one [Nonempty Wit₂]
+    (hcomm : (Reduction.pImplOf (pSpec₁ ++ₚ pSpec₂) impl).IsCommutative)
+    (hst : impl.IsStateless) (verify : Stmt₁ → pSpec₁.FullTranscript → Stmt₂)
+    {E₁ : Extractor.Straightline oSpec Stmt₁ Wit₁ Wit₂ pSpec₁} (hE₁ : E₁.IsLogIndependent)
+    (E₂ : Extractor.Straightline oSpec Stmt₂ Wit₂ Wit₃ pSpec₂)
+    (V₁ : Verifier oSpec Stmt₁ Stmt₂ pSpec₁) (hV₁ : V₁ = ⟨fun s t => pure (verify s t)⟩)
+    (V₂ : Verifier oSpec Stmt₂ Stmt₃ pSpec₂)
+    (P : Prover oSpec Stmt₁ Wit₁ Stmt₃ Wit₃ (pSpec₁ ++ₚ pSpec₂)) (stmtOut : Stmt₂)
+    (stmtIn : Stmt₁) (witIn : Wit₁) {ε₁ : ℝ≥0}
+    (h₁ : V₁.knowledgeSoundnessWith init impl rel₁ rel₂ E₁ ε₁) :
+    Pr[ fun a => ((fun o => Option.elim o False (ksBad rel₁ rel₃)) ∘ Option.map Prod.fst) a
+          ∧ Option.elim a False fun p => ∃ w₂ ∈ p.2.2, (p.2.1, w₂) ∈ rel₂
+      | init >>= fun s => StateT.run' (simulateQ (Reduction.pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+          (ksExecInstr verify E₁ E₂ V₁ V₂ P stmtIn witIn).run) s] ≤ ε₁ := by
+  classical
+  refine le_trans (probEvent_mono fun a _ ha => ksBadWeak_of_branch rel₁ rel₂ rel₃ a ha) ?_
+  refine le_trans ?_ (knowledgeSoundnessWith_randomized_ksExec hE₁ h₁
+    (pSpec₂.drawChalsBelow n le_rfl) (fun _ => witIn)
+    (fun c => P.takeLeftExtract verify E₂ c stmtOut (Classical.arbitrary Wit₂)) stmtIn)
+  have hpt : ∀ s : σ,
+      𝒟[StateT.run' (simulateQ (Reduction.pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+          (ksExecInstr verify E₁ E₂ V₁ V₂ P stmtIn witIn).run) s]
+        = 𝒟[pSpec₂.drawChalsBelow n le_rfl >>= fun c =>
+            StateT.run' (simulateQ (Reduction.pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+              (liftM (ksGameTwo verify E₁ E₂ V₂ P c stmtOut stmtIn witIn))) s] := by
+    intro s
+    have hmapout : (pSpec₂.drawChalsBelow n le_rfl >>= fun c =>
+          StateT.run' (simulateQ (Reduction.pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+            (liftM (ksGameTwo verify E₁ E₂ V₂ P c stmtOut stmtIn witIn))) s)
+        = (fun p => p.1) <$> (pSpec₂.drawChalsBelow n le_rfl >>= fun c =>
+            StateT.run (simulateQ (Reduction.pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+              (liftM (ksGameTwo verify E₁ E₂ V₂ P c stmtOut stmtIn witIn))) s) :=
+      Eq.trans (bind_congr fun c => Reduction.stateT_run'_eq _ _) (map_bind _ _ _).symm
+    rw [Reduction.stateT_run'_eq, evalDist_map,
+      evalDist_ksExecInstr_drawFirst hcomm hst verify E₁ E₂ V₁ hV₁ V₂ P stmtOut stmtIn witIn s,
+      hmapout, evalDist_map]
+  have hLHS : 𝒟[init >>= fun s => StateT.run' (simulateQ
+        (Reduction.pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+        (ksExecInstr verify E₁ E₂ V₁ V₂ P stmtIn witIn).run) s]
+      = 𝒟[pSpec₂.drawChalsBelow n le_rfl >>= fun c => init >>= fun s =>
+          StateT.run' (simulateQ (Reduction.pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+            (liftM (ksGameTwo verify E₁ E₂ V₂ P c stmtOut stmtIn witIn))) s] := by
+    rw [evalDist_bind]
+    simp only [hpt]
+    rw [← evalDist_bind, evalDist_bind_comm]
+  rw [probEvent_of_evalDist_eq hLHS, probEvent_bind_eq_tsum]
+  conv_rhs => rw [probEvent_bind_eq_tsum]
+  refine ENNReal.tsum_le_tsum fun c => mul_le_mul' le_rfl ?_
+  rw [probEvent_bind_eq_tsum]
+  conv_rhs => rw [probEvent_bind_eq_tsum]
+  refine ENNReal.tsum_le_tsum fun s => mul_le_mul' le_rfl ?_
+  exact probEvent_ksGameTwo_le_ksExec hst verify E₁ E₂ V₁ hV₁ V₂ P c stmtOut _ stmtIn witIn s
+
+open scoped NNReal in
+/-- **Sequential composition preserves knowledge soundness.**
+
+Beyond the hypotheses `Reduction.append_completeness` and `Verifier.append_soundness` already
+carry, this needs two more, both vacuous at `oSpec = []ₒ` where every protocol in this library
+instantiates:
+
+* `V₁` deterministic -- the same hypothesis `Verifier.StateFunction.append` carries. The first
+  component's adversary has to re-derive the intermediate statement inside its own `output` step,
+  and re-running a randomized `V₁` there would draw fresh randomness.
+* both extractors log-blind. `E₂` is called from inside that same `output` step, where the game's
+  logs are not visible; and the composed extractor has to hand `E₁` what the first component's
+  game would have logged, which it cannot reconstruct for the verifier -- the appended verifier's
+  log interleaves `V₁`'s with `V₂`'s and nothing records the split.
+
+The bound is a union bound on whether `E₂` produced a witness for `rel₂`: if it did not, the run
+is `V₂`'s game against the adversary's second half; if it did, the run is `V₁`'s game against
+`Prover.takeLeftExtract`, once the second half's challenges are drawn up front. -/
+theorem append_knowledgeSoundnessWith [Nonempty Stmt₂] [Nonempty Wit₂]
+    (hst : impl.IsStateless) (verify : Stmt₁ → pSpec₁.FullTranscript → Stmt₂)
+    (V₁ : Verifier oSpec Stmt₁ Stmt₂ pSpec₁) (hV₁ : V₁ = ⟨fun s t => pure (verify s t)⟩)
+    (V₂ : Verifier oSpec Stmt₂ Stmt₃ pSpec₂)
+    {E₁ : Extractor.Straightline oSpec Stmt₁ Wit₁ Wit₂ pSpec₁} (hE₁ : E₁.IsLogIndependent)
+    {E₂ : Extractor.Straightline oSpec Stmt₂ Wit₂ Wit₃ pSpec₂} (hE₂ : E₂.IsLogIndependent)
+    {ε₁ ε₂ : ℝ≥0}
+    (h₁ : V₁.knowledgeSoundnessWith init impl rel₁ rel₂ E₁ ε₁)
+    (h₂ : ∀ s : σ, V₂.knowledgeSoundnessWith (pure s) impl rel₂ rel₃ E₂ ε₂) :
+      (V₁.append V₂).knowledgeSoundnessWith init impl rel₁ rel₃
+        (Extractor.Straightline.appendDet verify E₁ E₂) (ε₁ + ε₂) := by
+  classical
+  rw [knowledgeSoundnessWith_iff_ksExec
+    (Extractor.Straightline.appendDet_isLogIndependent verify E₁ E₂)]
+  intro stmtIn witIn P
+  have hcomm : (Reduction.pImplOf (pSpec₁ ++ₚ pSpec₂) impl).IsCommutative :=
+    (hst.addLift (challengeQueryImpl (pSpec := pSpec₁ ++ₚ pSpec₂))).isCommutative
+  have hgame : ∀ s : σ,
+      StateT.run' (simulateQ (Reduction.pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+          (ksExec (Extractor.Straightline.appendDet verify E₁ E₂) (V₁.append V₂) P
+            stmtIn witIn).run) s
+        = Option.map Prod.fst <$> StateT.run' (simulateQ
+            (Reduction.pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+            (ksExecInstr verify E₁ E₂ V₁ V₂ P stmtIn witIn).run) s := fun s => by
+    rw [ksExec_appendDet_eq, OptionT.run_map, simulateQ_map, Reduction.stateT_run'_map]
+  simp only [hgame]
+  rw [OptionT.probEvent_mk, ← map_bind, probEvent_map, ENNReal.coe_add]
+  refine le_trans (probEvent_le_add_split
+    (fun o => Option.elim o False fun p => ∃ w₂ ∈ p.2.2, (p.2.1, w₂) ∈ rel₂) _)
+    (add_le_add ?_ ?_)
+  · exact probEvent_ksExecInstr_le_one hcomm hst verify hE₁ E₂ V₁ hV₁ V₂ P
+      (Classical.arbitrary Stmt₂) stmtIn witIn h₁
+  · exact probEvent_ksExecInstr_le_two hcomm verify E₁ hE₂ V₁ hV₁ V₂ P
+      (Classical.arbitrary Stmt₂) stmtIn witIn h₂
 end Verifier
 
 end Compose
