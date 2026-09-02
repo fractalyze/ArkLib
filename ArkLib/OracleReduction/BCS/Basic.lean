@@ -46,12 +46,18 @@ import ArkLib.OracleReduction.Composition.Sequential.General
     a stateful handler the two genuinely differ (`AppendCounterexample.lean`). The repaired
     theorem lives in `Composition/Sequential/AppendCompleteness.lean` and carries
     `QueryImpl.IsStateless`, which is free at `oSpec = []ₒ`.
-  - The `Verifier.append_soundness` family is still `sorry`, for that same ordering reason. The
-    n-fold statements in `Composition/Sequential/General.lean` are *derived* from these by
-    induction, so they are not an independent difficulty.
+  - `Verifier.append_soundness` is proved, in `Composition/Sequential/AppendSoundness.lean`,
+    with the same `QueryImpl.IsStateless` hypothesis and an `init` that never fails. Since the
+    adversary is an arbitrary prover for the appended protocol, it also needs
+    `Prover.takeLeft` / `Prover.dropLeft` from `Composition/Sequential/SplitProver.lean`.
+  - `Verifier.append_knowledgeSoundness` and the two round-by-round statements are still
+    `sorry`, the latter two also waiting on `Verifier.StateFunction.append` and
+    `Extractor.RoundByRound.append`. The n-fold statements in
+    `Composition/Sequential/General.lean` are *derived* from these by induction, so they are not
+    an independent difficulty.
 
-  So what is open is the soundness side of one append -- and batching does **not** escape it.
-  What batching buys is:
+  So what is open on the security side of one append is knowledge soundness and the
+  round-by-round family -- and batching does **not** escape it. What batching buys is:
 
   1. A **static arity**. The sequential round count `n + ∑ i, nCom i` sums over the verifier's
      query list, a runtime value -- the stub this file replaced took `queries : List …` as a
@@ -97,9 +103,10 @@ import ArkLib.OracleReduction.Composition.Sequential.General
   - `OracleReduction.BCSTransform` itself, assembling the two phases with `Reduction.append`.
   - The security statements. Completeness must take a `BCS.BatchingAdmissibility` hypothesis; it is
     false without one for any norm-bounded scheme. Completeness can now rest on
-    `Reduction.append_completeness`; soundness still waits on `Verifier.append_soundness`, which
-    is `sorry` upstream of this file -- see above, and note that batching narrows that dependency
-    rather than removing it.
+    `Reduction.append_completeness` and plain soundness on `Verifier.append_soundness`;
+    *knowledge* soundness still waits on `Verifier.append_knowledgeSoundness`, which is `sorry`
+    upstream of this file -- see above, and note that batching narrows that dependency rather
+    than removing it.
 -/
 
 variable {n : ℕ}
