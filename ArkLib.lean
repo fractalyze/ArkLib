@@ -290,6 +290,7 @@ import ArkLib.OracleReduction.Prelude
 import ArkLib.OracleReduction.ProtocolSpec.Basic
 import ArkLib.OracleReduction.ProtocolSpec.Cast
 import ArkLib.OracleReduction.ProtocolSpec.SeqCompose
+import ArkLib.OracleReduction.ProverContext
 import ArkLib.OracleReduction.Salt
 import ArkLib.OracleReduction.Security.Basic
 import ArkLib.OracleReduction.Security.CoordinateWiseSpecialSoundness

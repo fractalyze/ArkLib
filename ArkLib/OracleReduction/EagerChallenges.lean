@@ -123,6 +123,12 @@ theorem drawChalsBelow_succ_message {k : ℕ} (hk : k + 1 ≤ n)
   · rename_i hd'; exact Direction.noConfusion (hd.symm.trans hd')
   · rfl
 
+/-- Serve every challenge from a pre-drawn vector, in the base spec: no sampling at all. Total
+because every round index is below `n`. -/
+def chalImplFixed {ι : Type} {oSpec : OracleSpec ι} (c : pSpec.ChalsBelow n) :
+    QueryImpl ([pSpec.Challenge]ₒ'challengeOracleInterface) (OracleComp oSpec) :=
+  fun q => pure (c q.1 q.1.1.isLt)
+
 @[simp] lemma chalImplBelow_apply_of_ge {k : ℕ} (c : pSpec.ChalsBelow k)
     (q : ([pSpec.Challenge]ₒ'challengeOracleInterface).Domain) (h : ¬ ((q.1.1 : ℕ) < k)) :
     chalImplBelow c q = $ᵗ (pSpec.Challenge q.1) := dif_neg h
@@ -307,9 +313,31 @@ private lemma evalDist_bind_congr_prefix {α β : Type} {A B : ProbComp α} (h :
     (K : α → ProbComp β) : 𝒟[A >>= K] = 𝒟[B >>= K] := by
   rw [evalDist_bind, evalDist_bind, h]
 
+/-- **Run a prover with its challenges hardwired.** With the challenges supplied ahead of time the
+run makes no challenge queries, so it is an ordinary `oSpec` computation -- which is what lets it
+sit inside another prover's `output`, where only `oSpec` is available. -/
+def runFixed (Q : Prover oSpec S W S' W' pSpec) (c : pSpec.ChalsBelow n) (stmt : S) (wit : W) :
+    OracleComp oSpec (pSpec.FullTranscript × S' × W') :=
+  simulateQ ((QueryImpl.id' oSpec).addLift (chalImplFixed (oSpec := oSpec) c) :
+    QueryImpl (oSpec + [pSpec.Challenge]ₒ) (OracleComp oSpec)) (Q.run stmt wit)
+
 section Eager
 
 variable [∀ i, SampleableType (pSpec.Challenge i)]
+
+/-- A hardwired run, simulated, is the run simulated with the challenges served from the same
+vector. The bridge between `runFixed` and `evalDist_run_drawFirst`. -/
+theorem simulateQ_runFixed (implP : QueryImpl oSpec ProbComp)
+    (Q : Prover oSpec S W S' W' pSpec) (c : pSpec.ChalsBelow n) (stmt : S) (wit : W) :
+    simulateQ implP (Q.runFixed c stmt wit)
+      = simulateQ (implP.addLift (chalImplBelow c) :
+          QueryImpl (oSpec + [pSpec.Challenge]ₒ) ProbComp) (Q.run stmt wit) := by
+  rw [runFixed, ← QueryImpl.simulateQ_compose]
+  congr 1
+  funext q
+  rcases q with t | t
+  · exact simulateQ_spec_query _ _
+  · exact (chalImplBelow_apply_of_lt c t t.1.1.isLt).symm
 
 open OracleComp.DeferredSampling in
 /-- **The challenges may be drawn before the run.** Running with the challenge oracle live is
