@@ -260,7 +260,6 @@
   "Sumcheck.Spec.SingleRound.verifier_rbrKnowledgeSoundness",
   "Sumcheck.Spec.oracleVerifier_rbrKnowledgeSoundness",
   "Sumcheck.Spec.reduction_perfectCompleteness",
-  "Verifier.StateFunction.append",
   "Verifier.StateFunction.liftContext",
   "Verifier.append_knowledgeSoundness",
   "Verifier.append_rbrKnowledgeSoundness",

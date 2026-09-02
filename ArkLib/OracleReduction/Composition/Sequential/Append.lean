@@ -522,56 +522,12 @@ def RoundByRound.append
 
 end Extractor
 
-namespace Verifier
-
-variable {σ : Type} (init : ProbComp σ) (impl : QueryImpl oSpec (StateT σ ProbComp))
-    {lang₁ : Set Stmt₁} {lang₂ : Set Stmt₂} {lang₃ : Set Stmt₃}
-
-/-- The sequential composition of two state functions. -/
-def StateFunction.append
-    (V₁ : Verifier oSpec Stmt₁ Stmt₂ pSpec₁)
-    (V₂ : Verifier oSpec Stmt₂ Stmt₃ pSpec₂)
-    (S₁ : V₁.StateFunction init impl lang₁ lang₂)
-    (S₂ : V₂.StateFunction init impl lang₂ lang₃)
-    -- Assume the first verifier is deterministic for now
-    (verify : Stmt₁ → pSpec₁.FullTranscript → Stmt₂)
-    (hVerify : V₁ = ⟨fun stmt tr => pure (verify stmt tr)⟩) :
-      (V₁.append V₂).StateFunction init impl lang₁ lang₃ where
-  toFun := fun roundIdx stmt₁ transcript =>
-    if h : roundIdx.val ≤ m then
-    -- If the round index falls in the first protocol, then we simply invokes the first state fn
-      S₁ ⟨roundIdx, by omega⟩ stmt₁ (by simpa [h] using transcript.fst)
-    else
-    -- If the round index falls in the second protocol, then we returns the conjunction of
-    -- the first state fn on the first protocol's transcript, and the second state fn on the
-    -- remaining transcript.
-      have hm : min roundIdx.val m = m := min_eq_right_of_lt (by omega)
-      let transcript₁ : pSpec₁.FullTranscript := fun i => transcript.fst ⟨i, by simpa [hm]⟩
-      S₁ ⟨m, by omega⟩ stmt₁ transcript₁ ∧
-      S₂ ⟨roundIdx - m, by omega⟩ (verify stmt₁ transcript₁)
-        (by simpa [h] using transcript.snd)
-  toFun_empty := by
-    intro stmt
-    split
-    · constructor <;> intro h
-      · have h' := (S₁.toFun_empty stmt).mp h
-        convert h' using 2
-        · rfl
-        · apply heq_of_eq
-          funext i
-          exact Fin.elim0 i
-      · exact (S₁.toFun_empty stmt).mpr
-          (by
-            convert h using 2
-            · rfl
-            · apply heq_of_eq
-              funext i
-              exact Fin.elim0 i)
-    · exact absurd (Nat.zero_le m) ‹_›
-  toFun_next := sorry
-  toFun_full := sorry
-
-end Verifier
+/-! `Verifier.StateFunction.append` used to live here, with `toFun_next` and `toFun_full`
+admitted. It is now proved in `AppendStateFunction.lean`, where the two changes it needed are
+documented: past the cut it is the second component's state function rather than the conjunction of
+both -- the conjunction cannot satisfy `toFun_full` -- and it takes an `init` with nonempty support,
+which is what turns the first component's `toFun_full` into the set-level fact the boundary round
+reads. -/
 
 section Execution
 
