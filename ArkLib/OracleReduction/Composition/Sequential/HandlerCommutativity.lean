@@ -57,6 +57,41 @@ lemma simulateQ_run_of_isStateless {impl : QueryImpl spec (StateT σ ProbComp)}
     simp only [bind_assoc, pure_bind, map_bind]
     exact bind_congr fun u => ih u
 
+/-- `simulateQ_run_of_isStateless` against a *named* base handler. `IsStateless.base` is a
+`choose`, so a proof that wants to name the underlying `ProbComp` handler -- to feed it to a
+lemma stated in terms of it -- has to supply the witness rather than recover it. -/
+lemma simulateQ_run_of_apply {impl : QueryImpl spec (StateT σ ProbComp)}
+    {g : QueryImpl spec ProbComp} (hg : ∀ q, impl q = liftM (g q)) {α : Type}
+    (oa : OracleComp spec α) (s : σ) :
+    (simulateQ impl oa).run s = (fun a => (a, s)) <$> simulateQ g oa := by
+  induction oa using OracleComp.inductionOn with
+  | pure a => show (pure (a, s) : ProbComp (α × σ)) = _; simp
+  | query_bind t oa ih =>
+    simp only [simulateQ_query_bind, hg]
+    show ((g t >>= fun u => (pure (u, s) : ProbComp _)) >>=
+          fun p => (simulateQ impl (oa p.1)) p.2) = _
+    simp only [bind_assoc, pure_bind, map_bind]
+    exact bind_congr fun u => ih u
+
+/-- The state-discarding form of `simulateQ_run_of_apply`. -/
+lemma simulateQ_run'_of_apply {impl : QueryImpl spec (StateT σ ProbComp)}
+    {g : QueryImpl spec ProbComp} (hg : ∀ q, impl q = liftM (g q)) {α : Type}
+    (oa : OracleComp spec α) (s : σ) : (simulateQ impl oa).run' s = simulateQ g oa := by
+  show (fun x : α × σ => x.1) <$> (simulateQ impl oa).run s = _
+  rw [simulateQ_run_of_apply hg]
+  simp
+
+/-- The witness `IsStateless.addLift` uses, stated so a proof can name it. -/
+lemma isStateless_addLift_apply {ι₂ : Type} {spec₂ : OracleSpec ι₂}
+    {impl : QueryImpl spec (StateT σ ProbComp)} (h : impl.IsStateless)
+    (impl₂ : QueryImpl spec₂ ProbComp) (q : (spec + spec₂).Domain) :
+    (impl.addLift impl₂ : QueryImpl (spec + spec₂) (StateT σ ProbComp)) q
+      = liftM ((h.base.addLift impl₂ : QueryImpl (spec + spec₂) ProbComp) q) := by
+  rcases q with t | t
+  · show (impl t : StateT σ ProbComp _) = _
+    rw [h.apply]; rfl
+  · rfl
+
 /-- Adding a `ProbComp` handler to a stateless one keeps it stateless: `addLift` lifts both
 sides into the target monad, and neither reads nor writes `σ`. -/
 lemma IsStateless.addLift {ι₂ : Type} {spec₂ : OracleSpec ι₂}

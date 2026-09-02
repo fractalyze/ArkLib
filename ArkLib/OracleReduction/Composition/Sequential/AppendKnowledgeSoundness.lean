@@ -490,6 +490,32 @@ theorem probEvent_ksTailRight_le [Nonempty Wit₂]
         simulateQ_pure, StateT.run_pure, probEvent_pure, Function.comp, Option.elim]
       simp [hb]
 
+open OracleComp.DeferredSampling in
+open scoped NNReal in
+/-- **A stateless handler and a lossless `init` collapse a game to a plain `ProbComp`.** The
+handler's state is never read, so the initial state drops out; `hinit` is what stops `init`'s own
+failure mass from lowering the probability.
+
+Both sides of the `ε₁` comparison are put in this form, because the reordering and eager-sampling
+steps it needs are stated for `ProbComp`. -/
+theorem probEvent_collapse {N : ℕ} {pSpec : ProtocolSpec N}
+    [∀ i, SampleableType (pSpec.Challenge i)]
+    (hst : impl.IsStateless) (hinit : Pr[⊥ | init] = 0)
+    {α : Type} (Y : OracleComp (oSpec + [pSpec.Challenge]ₒ) α) (p : α → Prop) :
+    Pr[ p | init >>= fun s => StateT.run' (simulateQ
+        (QueryImpl.addLift impl challengeQueryImpl :
+          QueryImpl (oSpec + [pSpec.Challenge]ₒ) (StateT σ ProbComp)) Y) s]
+      = Pr[ p | simulateQ (hst.base.addLift challengeQueryImpl :
+          QueryImpl (oSpec + [pSpec.Challenge]ₒ) ProbComp) Y] := by
+  refine probEvent_of_evalDist_eq ?_ p
+  rw [show (fun s : σ => StateT.run' (simulateQ (QueryImpl.addLift impl challengeQueryImpl :
+          QueryImpl (oSpec + [pSpec.Challenge]ₒ) (StateT σ ProbComp)) Y) s)
+      = fun _ : σ => simulateQ (hst.base.addLift challengeQueryImpl :
+          QueryImpl (oSpec + [pSpec.Challenge]ₒ) ProbComp) Y from
+    funext fun s => QueryImpl.simulateQ_run'_of_apply
+      (QueryImpl.isStateless_addLift_apply hst challengeQueryImpl) Y s]
+  exact evalDist_bind_const_neverFails init hinit _
+
 open scoped NNReal in
 /-- **The `ε₂` half of the union bound.** On the runs where `E₂` produced no witness for `rel₂`,
 the appended game is `V₂`'s knowledge-soundness game against the adversary's second half. -/
