@@ -65,13 +65,97 @@ def dropLeft (P : Prover oSpec Stmt₁ Wit₁ Stmt₃ Wit₃ (pSpec₁ ++ₚ pSp
     let r ← P.sendMessage (MessageIdx.inr j)
       (cast (congrArg P.PrvState (by ext; simp [rightIdx, MessageIdx.inr])) state)
     return (cast (message_append_inr (pSpec₁ := pSpec₁) j) r.1,
-      cast (congrArg P.PrvState (by ext; simp [rightIdx, MessageIdx.inr] ; omega)) r.2)
+      cast (congrArg P.PrvState (by ext; simp [rightIdx, MessageIdx.inr]; omega)) r.2)
   receiveChallenge := fun j state => do
     let f ← P.receiveChallenge (ChallengeIdx.inr j)
       (cast (congrArg P.PrvState (by ext; simp [rightIdx, ChallengeIdx.inr])) state)
-    return fun c => cast (congrArg P.PrvState (by ext; simp [rightIdx, ChallengeIdx.inr] ; omega))
+    return fun c => cast (congrArg P.PrvState (by ext; simp [rightIdx, ChallengeIdx.inr]; omega))
       (f (cast (challenge_append_inr (pSpec₁ := pSpec₁) j).symm c))
   output := fun state =>
     P.output (cast (congrArg P.PrvState (by ext; simp [rightIdx])) state)
+
+
+variable (P : Prover oSpec Stmt₁ Wit₁ Stmt₃ Wit₃ (pSpec₁ ++ₚ pSpec₂)) (stmtOut : Stmt₂)
+
+/-- Before the cut, the split-off prover's private state is the original's. Definitional:
+`leftIdx` is `Fin.castLE`, which only rewrites the bound. -/
+theorem takeLeft_prvState (v : ℕ) (hv : v ≤ m) :
+    P.PrvState ⟨v, by omega⟩ = (P.takeLeft stmtOut).PrvState ⟨v, by omega⟩ := rfl
+
+set_option maxHeartbeats 4000000 in
+-- Unfolding `takeLeft` drags its field-level casts through the round's `dcast`s, so the defeq
+-- checks closing each branch are large. Raised limit.
+/-- One round before the cut: the original prover's round is the split-off prover's, lifted. -/
+theorem takeLeft_processRound (v : ℕ) (hv : v < m) (hvn : v < m + n)
+    (X : OracleComp (oSpec + [pSpec₁.Challenge]ₒ)
+          (pSpec₁.Transcript ⟨v, by omega⟩ × (P.takeLeft stmtOut).PrvState ⟨v, by omega⟩)) :
+    Prover.processRound ⟨v, hvn⟩ P
+        ((fun p => (liftTranscript (pSpec₂ := pSpec₂) v (by omega) (by omega) p.1,
+                    cast (takeLeft_prvState P stmtOut v (by omega)).symm p.2)) <$> liftM X)
+      = (fun p => (liftTranscript (pSpec₂ := pSpec₂) (v + 1) (by omega) (by omega) p.1,
+                   cast (takeLeft_prvState P stmtOut (v + 1) (by omega)).symm p.2))
+        <$> liftM (Prover.processRound ⟨v, hv⟩ (P.takeLeft stmtOut) X) := by
+  unfold Prover.processRound
+  simp only [map_bind, liftM_bind, bind_map_left]
+  refine bind_congr fun p => ?_
+  have hdir : (pSpec₁ ++ₚ pSpec₂).dir ⟨v, hvn⟩ = pSpec₁.dir ⟨v, hv⟩ :=
+    dir_append_lt (pSpec₂ := pSpec₂) v hv hvn
+  split
+  · rename_i hDirA
+    split
+    · rename_i hDirB
+      simp only [Prover.takeLeft, liftM_map, liftM_bind, map_bind, liftM_liftM_base,
+        liftM_liftM_getChallenge_inl, bind_map_left, bind_pure_comp, cast_cast, cast_eq,
+        Functor.map_map, ChallengeIdx.inl, Fin.castAdd, Fin.castLE]
+      refine bind_congr fun a => ?_
+      congr 1
+      funext ch
+      rw [liftTranscript_concat (pSpec₂ := pSpec₂) v hv hvn]
+      congr 2
+      exact (eq_of_heq ((cast_heq _ _).trans (cast_heq _ ch))).symm
+    · rename_i hDirB
+      exact Direction.noConfusion ((hdir.symm.trans hDirA).symm.trans hDirB)
+  · rename_i hDirA
+    split
+    · rename_i hDirB
+      exact Direction.noConfusion ((hdir.symm.trans hDirA).symm.trans hDirB)
+    · rename_i hDirB
+      simp only [Prover.takeLeft, bind_pure_comp, liftM_map, liftM_liftM_base, cast_cast,
+        cast_eq, Functor.map_map, MessageIdx.inl, Fin.castAdd, Fin.castLE]
+      congr 1
+      funext x
+      congr 1
+      rw [liftTranscript_concat (pSpec₂ := pSpec₂) v hv hvn]
+      simp only [cast_cast, cast_eq]
+
+
+set_option maxHeartbeats 4000000 in
+-- Each induction step re-elaborates `takeLeft_processRound`'s statement, casts included.
+-- Raised limit.
+/-- **The round induction before the cut.** The original prover's partial run, up to any round
+at or before the cut, is the split-off prover's partial run, lifted into the appended protocol's
+challenge oracle and with the transcript re-indexed. -/
+theorem takeLeft_runToRound (stmt : Stmt₁) (wit : Wit₁) :
+    ∀ (v : ℕ) (hv : v ≤ m) (hvn : v ≤ m + n),
+    P.runToRound ⟨v, by omega⟩ stmt wit
+      = (fun p => (liftTranscript (pSpec₂ := pSpec₂) v hv hvn p.1,
+                   cast (takeLeft_prvState P stmtOut v hv).symm p.2))
+        <$> liftM ((P.takeLeft stmtOut).runToRound ⟨v, by omega⟩ stmt wit) := by
+  intro v
+  induction v with
+  | zero =>
+    intro hv hvn
+    rw [runToRound_mk_zero, runToRound_mk_zero]
+    simp only [ChallengeIdx, Challenge]
+    congr 1
+    refine Prod.ext ?_ ?_
+    · exact Subsingleton.elim _ _
+    · simp [Prover.takeLeft]
+  | succ v ih =>
+    intro hv hvn
+    rw [Prover.runToRound_mk_succ P v (by omega),
+        Prover.runToRound_mk_succ (P.takeLeft stmtOut) v (by omega),
+        ih (by omega) (by omega)]
+    exact takeLeft_processRound P stmtOut v (by omega) (by omega) _
 
 end Prover
