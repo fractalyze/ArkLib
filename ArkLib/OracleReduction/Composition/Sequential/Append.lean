@@ -499,7 +499,13 @@ def Straightline.append (E₁ : Extractor.Straightline oSpec Stmt₁ Wit₁ Wit�
     let wit₁ ← E₁ stmt₁ wit₂ transcript.fst proveQueryLog verifyQueryLog
     return wit₁
 
-/-- The round-by-round extractor for the sequential composition of two (oracle) reductions -/
+/-- The round-by-round extractor for the sequential composition of two (oracle) reductions.
+
+`Extractor.RoundByRound.appendOfPure` in `AppendRbrKnowledgeSoundness.lean` builds this for a
+deterministic first verifier, which is what round-by-round knowledge soundness of an append is
+proved against. Whether it can be built in *this* generality is open for the same reason the
+security theorems are: past the cut the extractor has to name the statement the first verifier
+reported, as a function of the transcript alone. -/
 def RoundByRound.append
     {WitMid₁ : Fin (m + 1) → Type} {WitMid₂ : Fin (n + 1) → Type}
     (E₁ : Extractor.RoundByRound oSpec Stmt₁ Wit₁ Wit₂ pSpec₁ WitMid₁)

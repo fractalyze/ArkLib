@@ -55,13 +55,21 @@ import ArkLib.OracleReduction.Composition.Sequential.General
     deterministic first verifier -- both vacuous at `oSpec = []ₒ`. Without them it is still
     `sorry`, and what stands in the way is the knowledge-soundness game's flat `QueryLog`: the
     composed extractor cannot reconstruct the first component's verifier log.
-  - The two round-by-round statements are still `sorry`, and also wait on
-    `Verifier.StateFunction.append` and `Extractor.RoundByRound.append`. The n-fold statements in
+  - The two round-by-round statements are proved, in
+    `Composition/Sequential/AppendRbrSoundness.lean` and
+    `Composition/Sequential/AppendRbrKnowledgeSoundness.lean`, for a *deterministic* (non-failing)
+    first verifier and a stateless handler. Their unconditional statements are still `sorry`, and
+    so is `Extractor.RoundByRound.append`; what stands in the way of all three is that past the cut
+    the composed state function -- and, for the knowledge version, the composed extractor -- must
+    name the statement the first verifier reported, at every round and as a function of the
+    transcript alone, which a randomized `V₁` does not provide.
+    `Verifier.StateFunction.append` and `Extractor.RoundByRound.appendOfPure` are the deterministic
+    forms those proofs consume. The n-fold statements in
     `Composition/Sequential/General.lean` are *derived* from these by induction, so they are not
     an independent difficulty.
 
-  So what is open on the security side of one append is the round-by-round family -- and batching
-  does **not** escape it. What batching buys is:
+  So what is open on the security side of one append is the *randomized*-first-verifier case -- and
+  batching does **not** escape it. What batching buys is:
 
   1. A **static arity**. The sequential round count `n + ∑ i, nCom i` sums over the verifier's
      query list, a runtime value -- the stub this file replaced took `queries : List …` as a
