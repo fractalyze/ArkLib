@@ -490,6 +490,184 @@ theorem probEvent_ksTailRight_le [Nonempty Wit₂]
         simulateQ_pure, StateT.run_pure, probEvent_pure, Function.comp, Option.elim]
       simp [hb]
 
+/-- The whole post-cut tail with the second half's challenges hardwired: an `oSpec` computation,
+because that is all any of it queries once the challenges are supplied. -/
+def ksTailBase (verify : Stmt₁ → pSpec₁.FullTranscript → Stmt₂)
+    (E₁ : Extractor.Straightline oSpec Stmt₁ Wit₁ Wit₂ pSpec₁)
+    (E₂ : Extractor.Straightline oSpec Stmt₂ Wit₂ Wit₃ pSpec₂)
+    (V₂ : Verifier oSpec Stmt₂ Stmt₃ pSpec₂)
+    (P : Prover oSpec Stmt₁ Wit₁ Stmt₃ Wit₃ (pSpec₁ ++ₚ pSpec₂)) (stmtIn : Stmt₁)
+    (x : pSpec₁.FullTranscript × Stmt₂ × Reduction.CutState P) (s₂ : Stmt₂)
+    (c : pSpec₂.ChalsBelow n) :
+    OracleComp oSpec (Option ((Stmt₁ × Option Wit₁ × Stmt₃ × Wit₃) × Stmt₂ × Option Wit₂)) :=
+  (P.dropLeft (Stmt₂ := Stmt₂)).runFixed c s₂ (cast (Prover.prvState_cut_eq P) x.2.2)
+    >>= fun y => (V₂.verify s₂ y.1).run >>= fun o₃ =>
+      Option.elim o₃ (pure none) fun s₃ =>
+        (E₂ s₂ y.2.2 y.1 [] []).run >>= fun w₂? =>
+          (w₂?.elim (pure none) fun w₂ => (E₁ stmtIn w₂ x.1 [] []).run) >>= fun w₁? =>
+            pure (some ((stmtIn, w₁?, s₃, y.2.2), s₂, w₂?))
+
+/-- With the challenges hardwired, the post-cut tail is a lifted `oSpec` computation. -/
+theorem ksTailAfterProver_eq_base (verify : Stmt₁ → pSpec₁.FullTranscript → Stmt₂)
+    (E₁ : Extractor.Straightline oSpec Stmt₁ Wit₁ Wit₂ pSpec₁)
+    (E₂ : Extractor.Straightline oSpec Stmt₂ Wit₂ Wit₃ pSpec₂)
+    (V₂ : Verifier oSpec Stmt₂ Stmt₃ pSpec₂)
+    (P : Prover oSpec Stmt₁ Wit₁ Stmt₃ Wit₃ (pSpec₁ ++ₚ pSpec₂)) (stmtIn : Stmt₁)
+    (x : pSpec₁.FullTranscript × Stmt₂ × Reduction.CutState P) (s₂ : Stmt₂)
+    (c : pSpec₂.ChalsBelow n) :
+    ((liftM ((P.dropLeft (Stmt₂ := Stmt₂)).runFixed c s₂
+          (cast (Prover.prvState_cut_eq P) x.2.2)) :
+          OracleComp (oSpec + [pSpec₂.Challenge]ₒ) _)
+        >>= ksTailAfterProver verify E₁ E₂ V₂ P stmtIn x s₂)
+      = (liftM (ksTailBase verify E₁ E₂ V₂ P stmtIn x s₂ c) :
+          OracleComp (oSpec + [pSpec₂.Challenge]ₒ) _) := by
+  rw [ksTailBase, liftM_bind]
+  refine bind_congr fun y => ?_
+  rw [ksTailAfterProver, liftM_bind]
+  refine bind_congr fun o₃ => ?_
+  cases o₃ with
+  | none => simp
+  | some s₃ =>
+    simp only [Option.elim, liftM_bind]
+    refine bind_congr fun w₂? => ?_
+    simp only [liftM_bind, liftM_pure]
+
+/-- The appended game with the second half's challenges hardwired, as a computation of the *first*
+protocol's spec: the first half's run, then the whole hardwired tail. -/
+def ksGameTwo (verify : Stmt₁ → pSpec₁.FullTranscript → Stmt₂)
+    (E₁ : Extractor.Straightline oSpec Stmt₁ Wit₁ Wit₂ pSpec₁)
+    (E₂ : Extractor.Straightline oSpec Stmt₂ Wit₂ Wit₃ pSpec₂)
+    (V₂ : Verifier oSpec Stmt₂ Stmt₃ pSpec₂)
+    (P : Prover oSpec Stmt₁ Wit₁ Stmt₃ Wit₃ (pSpec₁ ++ₚ pSpec₂))
+    (c : pSpec₂.ChalsBelow n) (stmtOut : Stmt₂) (stmtIn : Stmt₁) (witIn : Wit₁) :
+    OracleComp (oSpec + [pSpec₁.Challenge]ₒ)
+      (Option ((Stmt₁ × Option Wit₁ × Stmt₃ × Wit₃) × Stmt₂ × Option Wit₂)) :=
+  (P.takeLeft stmtOut).run stmtIn witIn >>= fun x =>
+    (liftM (ksTailBase verify E₁ E₂ V₂ P stmtIn x (verify stmtIn x.1) c) :
+      OracleComp (oSpec + [pSpec₁.Challenge]ₒ) _)
+
+/-- The `ε₁` branch's event, weakened to what the first component's game measures: `E₂` produced a
+witness, and `E₁` failed on it while it was good for `rel₂`. -/
+def ksBadWeak (rel₁ : Set (Stmt₁ × Wit₁)) (rel₂ : Set (Stmt₂ × Wit₂)) :
+    Option ((Stmt₁ × Option Wit₁ × Stmt₃ × Wit₃) × Stmt₂ × Option Wit₂) → Prop :=
+  fun a => Option.elim a False fun p =>
+    ∃ w₂, p.2.2 = some w₂ ∧ ksBad rel₁ rel₂ (p.1.1, p.1.2.1, p.2.1, w₂)
+
+/-- The `ε₁` branch implies its weakening. -/
+theorem ksBadWeak_of_branch (rel₁ : Set (Stmt₁ × Wit₁)) (rel₂ : Set (Stmt₂ × Wit₂))
+    (rel₃ : Set (Stmt₃ × Wit₃))
+    (a : Option ((Stmt₁ × Option Wit₁ × Stmt₃ × Wit₃) × Stmt₂ × Option Wit₂))
+    (h : ((fun o => Option.elim o False (ksBad rel₁ rel₃)) ∘ Option.map Prod.fst) a
+      ∧ Option.elim a False fun p => ∃ w₂ ∈ p.2.2, (p.2.1, w₂) ∈ rel₂) :
+    ksBadWeak rel₁ rel₂ a := by
+  obtain ⟨h₁, h₂⟩ := h
+  cases a with
+  | none => exact h₁
+  | some p =>
+    obtain ⟨w₂, hw₂, hmem⟩ := h₂
+    exact ⟨w₂, hw₂, h₁.1, hmem⟩
+
+omit [∀ i, SampleableType (pSpec₁.Challenge i)] [∀ i, SampleableType (pSpec₂.Challenge i)] in
+/-- **The first component's game against the extracting adversary**, written out. Everything after
+the first half's run is an `oSpec` computation: the second half with `c` hardwired, then `E₂`, then
+`E₁` -- the last of these run by the *game*, not by the adversary, but `oSpec`-only either way. -/
+def ksGameOne (verify : Stmt₁ → pSpec₁.FullTranscript → Stmt₂)
+    (E₁ : Extractor.Straightline oSpec Stmt₁ Wit₁ Wit₂ pSpec₁)
+    (E₂ : Extractor.Straightline oSpec Stmt₂ Wit₂ Wit₃ pSpec₂)
+    (P : Prover oSpec Stmt₁ Wit₁ Stmt₃ Wit₃ (pSpec₁ ++ₚ pSpec₂))
+    (c : pSpec₂.ChalsBelow n) (stmtOut : Stmt₂) (junk : Wit₂)
+    (stmtIn : Stmt₁) (witIn : Wit₁) :
+    OracleComp (oSpec + [pSpec₁.Challenge]ₒ)
+      (Option (Stmt₁ × Option Wit₁ × Stmt₂ × Wit₂)) :=
+  (P.takeLeft stmtOut).run stmtIn witIn >>= fun p =>
+    (liftM (do
+      let y ← (P.dropLeft (Stmt₂ := Stmt₂)).runFixed c stmtOut
+                (cast (Prover.prvState_cut_eq P) p.2.2)
+      let w₂? ← (E₂ (verify stmtIn p.1) y.2.2 y.1 [] []).run
+      let w₁? ← (E₁ stmtIn (w₂?.getD junk) p.1 [] []).run
+      pure (some (stmtIn, w₁?, verify stmtIn p.1, w₂?.getD junk))) :
+        OracleComp (oSpec + [pSpec₁.Challenge]ₒ) _)
+
+omit [∀ i, SampleableType (pSpec₁.Challenge i)] [∀ i, SampleableType (pSpec₂.Challenge i)] in
+/-- The first component's game against `Prover.takeLeftExtract` is `ksGameOne`. -/
+theorem ksExec_takeLeftExtract_run (verify : Stmt₁ → pSpec₁.FullTranscript → Stmt₂)
+    (E₁ : Extractor.Straightline oSpec Stmt₁ Wit₁ Wit₂ pSpec₁)
+    (E₂ : Extractor.Straightline oSpec Stmt₂ Wit₂ Wit₃ pSpec₂)
+    (V₁ : Verifier oSpec Stmt₁ Stmt₂ pSpec₁) (hV₁ : V₁ = ⟨fun s t => pure (verify s t)⟩)
+    (P : Prover oSpec Stmt₁ Wit₁ Stmt₃ Wit₃ (pSpec₁ ++ₚ pSpec₂))
+    (c : pSpec₂.ChalsBelow n) (stmtOut : Stmt₂) (junk : Wit₂)
+    (stmtIn : Stmt₁) (witIn : Wit₁) :
+    (ksExec E₁ V₁ (P.takeLeftExtract verify E₂ c stmtOut junk) stmtIn witIn).run
+      = ksGameOne verify E₁ E₂ P c stmtOut junk stmtIn witIn := by
+  rw [ksExec_run_eq, Reduction.run_run_flat, Prover.takeLeftExtract_run, ksGameOne]
+  subst hV₁
+  simp only [OptionT.run_pure, liftM_pure, bind_assoc, pure_bind, Option.elim, liftM_bind]
+
+omit [∀ i, SampleableType (pSpec₂.Challenge i)] in
+open scoped NNReal in
+/-- **The `ε₁` comparison.** The hardwired appended game is dominated by the first component's
+game against `Prover.takeLeftExtract`: they run the same first half and the same hardwired second
+half, and then the appended one additionally runs `V₂` -- which can only lose mass, and whose
+output the weakened event does not read. -/
+theorem probEvent_ksGameTwo_le (implP : QueryImpl oSpec ProbComp)
+    (verify : Stmt₁ → pSpec₁.FullTranscript → Stmt₂)
+    (E₁ : Extractor.Straightline oSpec Stmt₁ Wit₁ Wit₂ pSpec₁)
+    (E₂ : Extractor.Straightline oSpec Stmt₂ Wit₂ Wit₃ pSpec₂)
+    (V₂ : Verifier oSpec Stmt₂ Stmt₃ pSpec₂)
+    (P : Prover oSpec Stmt₁ Wit₁ Stmt₃ Wit₃ (pSpec₁ ++ₚ pSpec₂))
+    (c : pSpec₂.ChalsBelow n) (stmtOut : Stmt₂) (junk : Wit₂)
+    (stmtIn : Stmt₁) (witIn : Wit₁) :
+    Pr[ ksBadWeak rel₁ rel₂ | simulateQ (implP.addLift challengeQueryImpl :
+        QueryImpl (oSpec + [pSpec₁.Challenge]ₒ) ProbComp)
+        (ksGameTwo verify E₁ E₂ V₂ P c stmtOut stmtIn witIn)]
+      ≤ Pr[ fun o => Option.elim o False (ksBad rel₁ rel₂) |
+          simulateQ (implP.addLift challengeQueryImpl :
+            QueryImpl (oSpec + [pSpec₁.Challenge]ₒ) ProbComp)
+            (ksGameOne verify E₁ E₂ P c stmtOut junk stmtIn witIn)] := by
+  classical
+  rw [ksGameTwo, ksGameOne, simulateQ_bind]
+  conv_rhs => rw [simulateQ_bind]
+  rw [probEvent_bind_eq_tsum]
+  conv_rhs => rw [probEvent_bind_eq_tsum]
+  refine ENNReal.tsum_le_tsum fun x => mul_le_mul' le_rfl ?_
+  rw [Prover.simulateQ_addLift_base, Prover.simulateQ_addLift_base, ksTailBase,
+    simulateQ_bind]
+  conv_rhs => rw [simulateQ_bind]
+  rw [probEvent_bind_eq_tsum]
+  conv_rhs => rw [probEvent_bind_eq_tsum]
+  refine ENNReal.tsum_le_tsum fun y => mul_le_mul' le_rfl ?_
+  rw [simulateQ_bind]
+  refine probEvent_bind_le_of_forall_le fun o₃ _ => ?_
+  cases o₃ with
+  | none => simp [ksBadWeak, simulateQ_pure, probEvent_pure]
+  | some s₃ =>
+    simp only [Option.elim, simulateQ_bind]
+    rw [probEvent_bind_eq_tsum]
+    conv_rhs => rw [probEvent_bind_eq_tsum]
+    refine ENNReal.tsum_le_tsum fun w₂? => mul_le_mul' le_rfl ?_
+    cases w₂? with
+    | none => simp [ksBadWeak]
+    | some w₂ =>
+      simp only [Option.getD]
+      rw [probEvent_bind_eq_tsum]
+      conv_rhs => rw [probEvent_bind_eq_tsum]
+      refine ENNReal.tsum_le_tsum fun w₁? => mul_le_mul' le_rfl ?_
+      simp only [simulateQ_pure]
+      rw [probEvent_pure, probEvent_pure]
+      have himp : ksBadWeak rel₁ rel₂
+            (some ((stmtIn, w₁?, s₃, y.2.2), verify stmtIn x.1, some w₂)) →
+          Option.elim (some (stmtIn, w₁?, verify stmtIn x.1, w₂)) False
+            (ksBad rel₁ rel₂) := by
+        rintro ⟨w, hw, hb⟩
+        cases hw
+        exact hb
+      split_ifs with h1 h2 h2
+      · exact le_rfl
+      · exact absurd (himp h1) h2
+      · exact zero_le
+      · exact le_rfl
+
+omit [∀ i, SampleableType (pSpec₁.Challenge i)] in
 open scoped NNReal in
 /-- `evalDist_ksTailRight_drawFirst` under a stateless handler, with the state threaded. The
 state is never read, so both sides are the `ProbComp` statement paired with the initial state. -/
