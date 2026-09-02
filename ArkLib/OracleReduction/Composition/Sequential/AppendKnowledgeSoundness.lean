@@ -154,9 +154,9 @@ theorem ksExec_run_eq (E : Extractor.Straightline oSpec StmtIn WitIn WitOut pSpe
   rw [OptionT.run_bind]
   refine bind_congr fun o => ?_
   cases o with
-  | none => simp [Option.elimM]
+  | none => simp []
   | some r =>
-    simp only [Option.elimM, Option.elim, ← monadLift_liftM_OptionT]
+    simp only [Option.elim, ← monadLift_liftM_OptionT]
     exact Eq.trans (OptionT.run_liftM_bind _ _) (bind_congr fun w? => OptionT.run_pure _)
 
 /-- **The knowledge-soundness game, with the logs gone.** For a log-independent extractor the game
@@ -317,7 +317,7 @@ theorem ksExecInstr_run_eq (verify : Stmt₁ → pSpec₁.FullTranscript → Stm
   cases o with
   | none => simp [Option.elimM]
   | some r =>
-    simp only [Option.elimM, Option.elim]
+    simp only [Option.elim]
     refine Eq.trans (OptionT.run_liftM_bind _ _) (bind_congr fun w₂? => ?_)
     exact OptionT.run_liftM_bind _ _
 
@@ -495,11 +495,11 @@ theorem probEvent_ksTailRight_le [Nonempty Wit₂]
   refine ENNReal.tsum_le_tsum fun q => mul_le_mul' le_rfl ?_
   cases hq : q.1 with
   | none =>
-    simp only [hq, Option.elim, simulateQ_pure, StateT.run_pure]
+    simp only [Option.elim, simulateQ_pure, StateT.run_pure]
     rw [probEvent_pure, probEvent_pure]
     simp
   | some r =>
-    simp only [hq, Option.elim, simulateQ_bind, StateT.run_bind]
+    simp only [Option.elim, simulateQ_bind, StateT.run_bind]
     rw [probEvent_bind_eq_tsum]
     conv_rhs => rw [probEvent_bind_eq_tsum]
     refine ENNReal.tsum_le_tsum fun w => mul_le_mul' le_rfl ?_
@@ -508,8 +508,8 @@ theorem probEvent_ksTailRight_le [Nonempty Wit₂]
       simp only [simulateQ_pure, StateT.run_pure]
       rw [probEvent_pure]
       simp [hb]
-    · simp only [← bind_pure_comp, simulateQ_map, StateT.run_map, probEvent_map,
-        simulateQ_pure, StateT.run_pure, probEvent_pure, Function.comp, Option.elim]
+    · simp only [ bind_pure_comp,
+        simulateQ_pure, StateT.run_pure, probEvent_pure, Function.comp]
       simp [hb]
 
 /-- The whole post-cut tail with the second half's challenges hardwired: an `oSpec` computation,
@@ -552,7 +552,7 @@ theorem ksTailAfterProver_eq_base (verify : Stmt₁ → pSpec₁.FullTranscript 
   | some s₃ =>
     simp only [Option.elim, liftM_bind]
     refine bind_congr fun w₂? => ?_
-    simp only [liftM_bind, liftM_pure]
+    simp only [liftM_pure]
 
 /-- The appended game with the second half's challenges hardwired, as a computation of the *first*
 protocol's spec: the first half's run, then the whole hardwired tail. -/
