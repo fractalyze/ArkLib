@@ -96,4 +96,66 @@ theorem append_run_run_flat (R₁ : Reduction oSpec Stmt₁ Wit₁ Stmt₂ Wit�
   rw [append_run_run]
   simp only [OptionT.run_liftM_bind, OptionT.run_getM_bind, OptionT.run_pure]
 
+section ChallengeRestrict
+
+variable {σ : Type} [∀ i, SampleableType (pSpec₁.Challenge i)]
+  [∀ i, SampleableType (pSpec₂.Challenge i)]
+  {impl : QueryImpl oSpec (StateT σ ProbComp)} {α : Type}
+
+/-- Transporting a uniform sample along an equality of types is again a uniform sample. Both
+`SampleableType` instances are uniform by their own axioms, and `cast` is a bijection, so the two
+agree pointwise -- which is all `evalDist_ext` needs. The instances themselves are unrelated: the
+appended protocol's instance is built by `Fin.fappend₂`, not by transporting the component's, so
+this is not definitional. -/
+lemma evalDist_cast_map_uniformSample {A B : Type} [SampleableType A] [SampleableType B]
+    (h : A = B) : 𝒟[(cast h <$> ($ᵗ A) : ProbComp B)] = 𝒟[($ᵗ B)] :=
+  evalDist_ext fun x =>
+    probOutput_map_bijective_uniform_cross A (cast h) (Equiv.cast h).bijective x
+
+/-- The handler `Reduction.completeness` runs a protocol under: the ambient `impl` for `oSpec`,
+uniform sampling for the challenges. Named so the statements below can say which protocol's
+challenge oracle they mean. -/
+private abbrev pImplOf {N : ℕ} (pSpec : ProtocolSpec N)
+    [∀ i, SampleableType (pSpec.Challenge i)] (impl : QueryImpl oSpec (StateT σ ProbComp)) :
+    QueryImpl (oSpec + [pSpec.Challenge]ₒ) (StateT σ ProbComp) :=
+  QueryImpl.addLift impl challengeQueryImpl
+
+/-- **Restricting the challenge oracle.** A computation of the left component, lifted into the
+appended protocol's challenge spec and run under the appended handler, has the same distribution
+as the same computation run under the left component's own handler. The `oSpec` queries are
+untouched by the lift; a challenge query is reindexed to `ChallengeIdx.inl`, where the response
+transport is a `cast` and `evalDist_cast_map_uniformSample` says the sample is unchanged. -/
+lemma evalDist_simulateQ_liftM_left (c : OracleComp (oSpec + [pSpec₁.Challenge]ₒ) α) (s : σ) :
+    𝒟[StateT.run (simulateQ (pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+          (liftM c : Comp oSpec pSpec₁ pSpec₂ α)) s]
+      = 𝒟[StateT.run (simulateQ (pImplOf pSpec₁ impl) c) s] := by
+  induction c using OracleComp.inductionOn generalizing s with
+  | pure a => simp
+  | query_bind t oa ih =>
+    rw [liftM_bind]
+    simp only [simulateQ_bind, StateT.run_bind, evalDist_bind]
+    have hhead : 𝒟[StateT.run (simulateQ (pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+          (liftM (liftM (OracleSpec.query t) :
+            OracleComp (oSpec + [pSpec₁.Challenge]ₒ) _) : Comp oSpec pSpec₁ pSpec₂ _)) s]
+        = 𝒟[StateT.run (simulateQ (pImplOf pSpec₁ impl)
+            (liftM (OracleSpec.query t) : OracleComp (oSpec + [pSpec₁.Challenge]ₒ) _)) s] := by
+      rcases t with t | t
+      · rfl
+      · obtain ⟨i, q⟩ := t
+        conv_lhs => rw [← OracleComp.liftComp_eq_liftM, OracleComp.liftComp_query]
+        have hkey := evalDist_cast_map_uniformSample (challenge_append_inl (pSpec₂ := pSpec₂) i)
+        rw [evalDist_map] at hkey
+        have hfin : (fun a => (cast (challenge_append_inl (pSpec₂ := pSpec₂) i) a, s)) <$>
+              𝒟[($ᵗ ((pSpec₁ ++ₚ pSpec₂).Challenge (ChallengeIdx.inl i)))]
+            = (fun a => (a, s)) <$> 𝒟[($ᵗ (pSpec₁.Challenge i))] := by
+          rw [← hkey, Functor.map_map]
+        -- `simp only` with the resolved lemma list leaves the goal in a shape `exact` rejects;
+        -- the unfoldings (`pImplOf`, `OracleSpec.query`) are what make the two sides defeq.
+        simp [pImplOf, simulateQ_liftM_query, OracleSpec.query]
+        exact hfin
+    rw [hhead]
+    exact bind_congr fun p => ih p.1 p.2
+
+end ChallengeRestrict
+
 end Reduction
