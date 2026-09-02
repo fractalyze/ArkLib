@@ -51,6 +51,27 @@ line. -/
 private abbrev Comp (oSpec : OracleSpec ι) (pSpec₁ : ProtocolSpec m) (pSpec₂ : ProtocolSpec n) :=
   OracleComp (oSpec + [(pSpec₁ ++ₚ pSpec₂).Challenge]ₒ)
 
+section SingleRun
+
+variable {N : ℕ} {pSpec : ProtocolSpec N} {S W S' W' : Type}
+
+/-- **One reduction, run, flattened out of `OptionT`.** The prover cannot fail, so `OptionT.run`
+pushes past its bind and leaves a plain `OracleComp` chain: prover, verifier, one `Option.elim`.
+The appended run is put in the same shape by `append_run_run_flat`, which is what lets the two
+be compared. -/
+theorem run_run_flat (R : Reduction oSpec S W S' W' pSpec) (stmt : S) (wit : W) :
+    (Reduction.run stmt wit R).run
+      = (do
+          let x ← Prover.run stmt wit R.prover
+          let o ← (liftM (R.verifier.verify stmt x.1).run :
+              OracleComp (oSpec + [pSpec.Challenge]ₒ) _)
+          Option.elim o (pure none) fun s' => pure (some (x, s'))) := by
+  unfold Reduction.run
+  simp only [Verifier.run, ← monadLift_liftM_OptionT, OptionT.run_liftM_bind,
+    OptionT.run_getM_bind, OptionT.run_pure]
+
+end SingleRun
+
 /-- **The appended reduction, run.** `Prover.append_run` puts the two provers in sequence;
 this carries that through `Reduction.run` and `Verifier.append` to the whole reduction, so the
 appended run reads as `P₁, P₂, V₁, V₂` with the transcript split back apart for the verifiers.
@@ -151,6 +172,38 @@ lemma evalDist_simulateQ_liftM_left (c : OracleComp (oSpec + [pSpec₁.Challenge
           rw [← hkey, Functor.map_map]
         -- `simp only` with the resolved lemma list leaves the goal in a shape `exact` rejects;
         -- the unfoldings (`pImplOf`, `OracleSpec.query`) are what make the two sides defeq.
+        simp [pImplOf, simulateQ_liftM_query, OracleSpec.query]
+        exact hfin
+    rw [hhead]
+    exact bind_congr fun p => ih p.1 p.2
+
+/-- **Restricting the challenge oracle, right component.** The mirror of
+`evalDist_simulateQ_liftM_left`: a computation of the right component is reindexed to
+`ChallengeIdx.inr`. -/
+lemma evalDist_simulateQ_liftM_right (c : OracleComp (oSpec + [pSpec₂.Challenge]ₒ) α) (s : σ) :
+    𝒟[StateT.run (simulateQ (pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+          (liftM c : Comp oSpec pSpec₁ pSpec₂ α)) s]
+      = 𝒟[StateT.run (simulateQ (pImplOf pSpec₂ impl) c) s] := by
+  induction c using OracleComp.inductionOn generalizing s with
+  | pure a => simp
+  | query_bind t oa ih =>
+    rw [liftM_bind]
+    simp only [simulateQ_bind, StateT.run_bind, evalDist_bind]
+    have hhead : 𝒟[StateT.run (simulateQ (pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+          (liftM (liftM (OracleSpec.query t) :
+            OracleComp (oSpec + [pSpec₂.Challenge]ₒ) _) : Comp oSpec pSpec₁ pSpec₂ _)) s]
+        = 𝒟[StateT.run (simulateQ (pImplOf pSpec₂ impl)
+            (liftM (OracleSpec.query t) : OracleComp (oSpec + [pSpec₂.Challenge]ₒ) _)) s] := by
+      rcases t with t | t
+      · rfl
+      · obtain ⟨i, q⟩ := t
+        conv_lhs => rw [← OracleComp.liftComp_eq_liftM, OracleComp.liftComp_query]
+        have hkey := evalDist_cast_map_uniformSample (challenge_append_inr (pSpec₁ := pSpec₁) i)
+        rw [evalDist_map] at hkey
+        have hfin : (fun a => (cast (challenge_append_inr (pSpec₁ := pSpec₁) i) a, s)) <$>
+              𝒟[($ᵗ ((pSpec₁ ++ₚ pSpec₂).Challenge (ChallengeIdx.inr i)))]
+            = (fun a => (a, s)) <$> 𝒟[($ᵗ (pSpec₂.Challenge i))] := by
+          rw [← hkey, Functor.map_map]
         simp [pImplOf, simulateQ_liftM_query, OracleSpec.query]
         exact hfin
     rw [hhead]
