@@ -176,6 +176,61 @@ lemma runWithLog_discard_log_eq_run (stmt : StmtIn) (wit : WitIn)
       Prod.fst <$> prover.runWithLog stmt wit = prover.run stmt wit := by
   simp [runWithLog]
 
+/-! ### Unfolding a partial run
+
+`Prover.runToRound` is a `Fin.induction`, so `Fin.induction_zero` / `Fin.induction_succ` fire on
+`0` and `Fin.succ j` -- while a round induction over `ℕ` hands you `⟨v, _⟩` and `⟨v + 1, _⟩`. The
+two are definitionally equal, so `show` bridges them; `rw` cannot, because the motive is not type
+correct (transcript and state both depend on the index). -/
+
+/-- Unfold `runToRound` one round at a raw `Fin.mk` successor index.
+
+`Fin.induction_succ` only fires on an index of the form `Fin.succ j`, and a round induction hands
+you `⟨v + 1, _⟩` instead. The two are definitionally equal, so `show` bridges them -- but `rw`
+cannot, because the motive is not type correct. -/
+theorem runToRound_mk_succ {N : ℕ} {pSpec : ProtocolSpec N} {S W S' W' : Type}
+    (P : Prover oSpec S W S' W' pSpec) (v : ℕ) (hv : v < N) (stmt : S) (wit : W) :
+    P.runToRound ⟨v + 1, by omega⟩ stmt wit
+      = Prover.processRound ⟨v, hv⟩ P (P.runToRound ⟨v, by omega⟩ stmt wit) := by
+  show P.runToRound (Fin.succ ⟨v, hv⟩) stmt wit = _
+  simp only [Prover.runToRound, Fin.induction_succ]
+  rfl
+
+theorem runToRound_mk_zero {N : ℕ} {pSpec : ProtocolSpec N} {S W S' W' : Type}
+    (P : Prover oSpec S W S' W' pSpec) (h : 0 < N + 1) (stmt : S) (wit : W) :
+    P.runToRound ⟨0, h⟩ stmt wit = pure (default, P.input (stmt, wit)) := by
+  show P.runToRound 0 stmt wit = _
+  simp only [Prover.runToRound, Fin.induction_zero]
+  rfl
+
+/-- `processRound` distributes over a bind in its input: it consumes the input with a single
+`>>=`, so this is `bind_assoc`. The right-region induction needs it to reach past the `P₁` run and
+the `P₁.output`/`P₂.input` handover that sit in front of `P₂`'s partial run. -/
+theorem processRound_bind {N : ℕ} {pSpec : ProtocolSpec N} {S W S' W' α : Type}
+    (j : Fin N) (P : Prover oSpec S W S' W' pSpec)
+    (A : OracleComp (oSpec + [pSpec.Challenge]ₒ) α)
+    (f : α → OracleComp (oSpec + [pSpec.Challenge]ₒ)
+          (pSpec.Transcript j.castSucc × P.PrvState j.castSucc)) :
+    Prover.processRound j P (A >>= f) = A >>= fun a => Prover.processRound j P (f a) := by
+  unfold Prover.processRound
+  rw [bind_assoc]
+
+/-- Unfold `runToRound` at index `1`. Like `runToRound_mk_zero` / `runToRound_mk_succ` this is a
+`show`-based defeq bridge: `Fin.induction_succ` fires on `Fin.succ ⟨0, _⟩` and a literal `1` is not
+syntactically that. -/
+theorem runToRound_mk_one {N : ℕ} {pSpec : ProtocolSpec N} {S W S' W' : Type}
+    (P : Prover oSpec S W S' W' pSpec) (hN : 0 < N) (stmt : S) (wit : W) :
+    P.runToRound ⟨1, by omega⟩ stmt wit = Prover.processRound ⟨0, hN⟩ P
+      (pure ((default : pSpec.Transcript 0), P.input (stmt, wit))) := by
+  change P.runToRound (Fin.succ ⟨0, hN⟩) stmt wit = _
+  simp only [Prover.runToRound, Fin.induction_succ]
+  rfl
+
+/-- `Fin.last N` written as a raw `Fin.mk`, which is the index the round inductions produce. -/
+theorem runToRound_last {N : ℕ} {pSpec : ProtocolSpec N} {S W S' W' : Type}
+    (P : Prover oSpec S W S' W' pSpec) (stmt : S) (wit : W) :
+    P.runToRound (Fin.last N) stmt wit = P.runToRound ⟨N, by omega⟩ stmt wit := rfl
+
 end Prover
 
 /-- Run the (non-oracle) verifier in an interactive reduction. It takes in the input statement and

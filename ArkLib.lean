@@ -267,6 +267,7 @@ import ArkLib.OracleReduction.Composition.Sequential.General
 import ArkLib.OracleReduction.Composition.Sequential.HandlerCommutativity
 import ArkLib.OracleReduction.Composition.Sequential.IsPure
 import ArkLib.OracleReduction.Composition.Sequential.SplitProver
+import ArkLib.OracleReduction.EagerChallenges
 import ArkLib.OracleReduction.Equiv
 import ArkLib.OracleReduction.Execution
 import ArkLib.OracleReduction.FiatShamir.Basic
