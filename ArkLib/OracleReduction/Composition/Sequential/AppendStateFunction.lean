@@ -10,15 +10,26 @@ import ArkLib.OracleReduction.Composition.Sequential.Append
 # The state function of a sequential composition
 
 `Verifier.StateFunction.append` used to sit in `Append.lean` with `toFun_next` and `toFun_full`
-admitted. It is proved here, with two changes to what was written there.
+admitted. It is proved here, and its value past the cut is not what was written there.
 
-**The state function is the second component's, past the cut -- not a conjunction.** The admitted
-version read, on a round `r > m`, `S₁` at the *full* first transcript *and* `S₂` at the remaining
-one. That conjunction cannot satisfy `toFun_full`: `¬(S₁ ∧ S₂)` holds when `S₁` is false while `S₂`
-is true, and a true `S₂` at a full transcript is exactly the situation in which `V₂` may output
-into `lang₃`, so the required probability is not zero. Dropping the conjunct is sound because `S₁`
-being false at the cut already forces `S₂` to be false at round `0` of the second protocol -- via
-`S₁.toFun_full` and `S₂.toFun_empty` -- which is what carries the boundary case of `toFun_next`.
+**Past the cut it is the second component's state function, weakened by a disjunct.** The admitted
+version read, at a round `r > m`, `S₁` at the *full* first transcript *and* `S₂` at the remaining
+one. That conjunction does not satisfy `toFun_full`: `¬(S₁ ∧ S₂)` holds when `S₁` is false while
+`S₂` is true, and a true `S₂` at a full transcript is exactly when `V₂` may output into `lang₃`, so
+the required probability is not zero. `toFun_full` in fact pins the round-`m + n` value down to
+something `S₂` implies, so the first component can only be consulted past the cut through a
+*disjunct*. The value here is `S₂ (r - m) s₂ · ∨ s₂ ∈ lang₂`, where `s₂` is the statement `V₁`
+reports at the cut.
+
+**The disjunct is what a round-by-round bound past the cut needs.** `S₂` alone would not do. `V₂`'s
+bad-transition bound is a hypothesis about statements *outside* `lang₂` only; on the branch where
+the first half was broken -- `s₂ ∈ lang₂`, which a prover reaches with up to the first half's
+accumulated error -- `S₂` is unconstrained and may flip at every round. Recording that branch as
+"already true" takes it out of the bad-transition event, which becomes
+`s₂ ∉ lang₂ ∧ ¬ S₂ w · ∧ S₂ (w + 1) ·` -- exactly what `V₂`'s hypothesis bounds. Dropping the
+conjunct costs nothing in the other direction either: `S₁` false at the cut already forces `S₂`
+false at round `0` of the second protocol, via `S₁.toFun_full` and `S₂.toFun_empty`, and that is
+what carries the boundary round of `toFun_next`.
 
 **An `init` that is actually sampled.** That boundary step reads `S₁.toFun_full`'s conclusion, a
 statement about probability, as the set-level fact `verify stmt tr ∉ lang₂`
@@ -181,8 +192,9 @@ theorem not_mem_of_pure {A B : Type} {N : ℕ} {pSpec : ProtocolSpec N}
     Set.mem_image, Prod.exists, exists_and_right, exists_eq_right, exists_prop,
     forall_exists_index, and_imp] at key
   obtain ⟨s, hs⟩ := hinit
-  have heq : ((simulateQ impl (pure (verify stmt tr) : OptionT (OracleComp oSpec) B)).run s
-      : ProbComp (Option B × σ)) = pure (some (verify stmt tr), s) := rfl
+  have heq :
+      ((simulateQ impl (pure (verify stmt tr) : OptionT (OracleComp oSpec) B)).run s :
+        ProbComp (Option B × σ)) = pure (some (verify stmt tr), s) := rfl
   exact key _ s hs s (by rw [heq]; simp)
 
 end Lemmas
@@ -199,9 +211,10 @@ local macro "fin_omega" : tactic =>
       | (simp only [Fin.val_mk, Fin.val_last, Fin.val_succ, Fin.val_castSucc]; omega))
 
 /-- **The sequential composition of two state functions.** Before the cut it is the first
-component's, after the cut the second component's, on the intermediate statement the deterministic
-first verifier reports. See this file's module docstring for why it is not the conjunction of the
-two, and for what `hinit` is doing. -/
+component's; past the cut it is the second component's, on the intermediate statement the
+deterministic first verifier reports, or else that statement already being in `lang₂` -- which is
+how a broken first half is recorded. See this file's module docstring for why it is that and not
+the conjunction of the two, and for what `hinit` is doing. -/
 def append
     (V₁ : Verifier oSpec Stmt₁ Stmt₂ pSpec₁)
     (V₂ : Verifier oSpec Stmt₂ Stmt₃ pSpec₂)
@@ -217,10 +230,12 @@ def append
       -- Inside the first protocol: the first state function, on the transcript so far.
       S₁ ⟨roundIdx, by omega⟩ stmt₁ (fstUpTo roundIdx.val h le_rfl transcript)
     else
-      -- Past the cut: the second state function, on the statement `V₁` reported at the cut.
+      -- Past the cut: the second state function, on the statement `V₁` reported at the cut --
+      -- or that statement already being good, which is how a broken first half is recorded.
       S₂ ⟨roundIdx.val - m, by omega⟩
         (verify stmt₁ (fstFull (by omega) transcript))
         (Transcript.snd transcript)
+      ∨ verify stmt₁ (fstFull (by omega) transcript) ∈ lang₂
   toFun_empty := by
     intro stmt
     rw [dif_pos (show ((0 : Fin (m + n + 1)) : ℕ) ≤ m by simp)]
@@ -283,7 +298,7 @@ def append
           (cast (type_append_add (pSpec₁ := pSpec₁) 0 hn₀ (by fin_omega))
             (cast (congrArg (pSpec₁ ++ₚ pSpec₂).Type hk_eq.symm) msg))
         intro hcon
-        refine key ((congr_heq S₂ (Fin.ext (by fin_omega)) _ ?_).mpr hcon)
+        refine key ((congr_heq S₂ (Fin.ext (by fin_omega)) _ ?_).mpr (hcon.resolve_right h₃))
         refine heq_of_apply_heq (Fin.ext (by fin_omega)) fun i hia hib => ?_
         have hia' : i < 0 + 1 := hia
         have hib' : i < (k : ℕ) + 1 - m := hib
@@ -297,10 +312,12 @@ def append
         have hdir₂ : pSpec₂.dir ⟨(k : ℕ) - m, by fin_omega⟩ = .P_to_V := by
           rw [← dir_append_ge (pSpec₁ := pSpec₁) (pSpec₂ := pSpec₂) (k : ℕ) hmk k.isLt]
           exact hDir
-        have key := S₂.toFun_next ⟨(k : ℕ) - m, by fin_omega⟩ hdir₂ _ (Transcript.snd tr) hnot
+        have key := S₂.toFun_next ⟨(k : ℕ) - m, by fin_omega⟩ hdir₂ _ (Transcript.snd tr)
+          (fun hc => hnot (Or.inl hc))
           (cast (type_append_ge (pSpec₁ := pSpec₁) (pSpec₂ := pSpec₂) (k : ℕ) hmk k.isLt) msg)
         intro hcon
-        refine key ((congr_heq S₂ (Fin.ext (by fin_omega)) _ ?_).mpr hcon)
+        refine key ((congr_heq S₂ (Fin.ext (by fin_omega)) _ ?_).mpr
+          (hcon.resolve_right fun hc => hnot (Or.inr hc)))
         refine heq_of_apply_heq (Fin.ext (by fin_omega)) fun i hia hib => ?_
         have hia' : i < (k : ℕ) - m + 1 := hia
         have hib' : i < (k : ℕ) + 1 - m := hib
@@ -336,8 +353,8 @@ def append
           fun i hia _ => absurd hia (by simp)).mp hc))
     · rw [dif_neg hn, fstFull_last] at hnot
       intro hc
-      exact hnot ((congr_heq S₂ (a := Fin.last n) (Fin.ext (by simp))
-        (verify stmt tr.fst) (heq_snd_last tr).symm).mp hc)
+      exact hnot (Or.inl ((congr_heq S₂ (a := Fin.last n) (Fin.ext (by simp))
+        (verify stmt tr.fst) (heq_snd_last tr).symm).mp hc))
 
 end Append
 

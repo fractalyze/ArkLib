@@ -524,10 +524,10 @@ end Extractor
 
 /-! `Verifier.StateFunction.append` used to live here, with `toFun_next` and `toFun_full`
 admitted. It is now proved in `AppendStateFunction.lean`, where the two changes it needed are
-documented: past the cut it is the second component's state function rather than the conjunction of
-both -- the conjunction cannot satisfy `toFun_full` -- and it takes an `init` with nonempty support,
-which is what turns the first component's `toFun_full` into the set-level fact the boundary round
-reads. -/
+documented: past the cut it is the second component's state function weakened by the disjunct
+"the statement `V₁` reported is already in `lang₂`", rather than the conjunction of both -- the
+conjunction cannot satisfy `toFun_full` -- and it takes an `init` with nonempty support, which is
+what turns the first component's `toFun_full` into the set-level fact the boundary round reads. -/
 
 section Execution
 
