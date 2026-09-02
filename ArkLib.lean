@@ -262,6 +262,7 @@ import ArkLib.OracleReduction.Composition.Sequential.Append
 import ArkLib.OracleReduction.Composition.Sequential.AppendCompleteness
 import ArkLib.OracleReduction.Composition.Sequential.AppendCounterexample
 import ArkLib.OracleReduction.Composition.Sequential.AppendProver
+import ArkLib.OracleReduction.Composition.Sequential.AppendSoundness
 import ArkLib.OracleReduction.Composition.Sequential.General
 import ArkLib.OracleReduction.Composition.Sequential.HandlerCommutativity
 import ArkLib.OracleReduction.Composition.Sequential.IsPure

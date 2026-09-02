@@ -289,4 +289,12 @@ theorem run_eq_takeLeft_dropLeft (stmt : Stmt₁) (wit : Wit₁) :
   refine Eq.trans (map_bind_left _ _ _) (bind_congr fun a => ?_)
   rfl
 
+
+/-- **`dropLeft` ignores its input statement.** Its `input` is the second projection, so the
+statement it is handed never reaches a round. The soundness composition needs this: the adversary's
+second half is run on whatever statement `takeLeft` reported, while the second verifier's soundness
+game runs it on the *verifier*'s output statement. -/
+theorem dropLeft_run_congr (s s' : Stmt₂) (w : P.PrvState (rightIdx m (0 : Fin (n + 1)))) :
+    Prover.run s w (P.dropLeft) = Prover.run s' w (P.dropLeft) := rfl
+
 end Prover

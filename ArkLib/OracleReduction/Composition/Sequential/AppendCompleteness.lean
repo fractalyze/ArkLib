@@ -224,7 +224,7 @@ lemma evalDist_cast_map_uniformSample {A B : Type} [SampleableType A] [Sampleabl
 /-- The handler `Reduction.completeness` runs a protocol under: the ambient `impl` for `oSpec`,
 uniform sampling for the challenges. Named so the statements below can say which protocol's
 challenge oracle they mean. -/
-private abbrev pImplOf {N : ℕ} (pSpec : ProtocolSpec N)
+abbrev pImplOf {N : ℕ} (pSpec : ProtocolSpec N)
     [∀ i, SampleableType (pSpec.Challenge i)] (impl : QueryImpl oSpec (StateT σ ProbComp)) :
     QueryImpl (oSpec + [pSpec.Challenge]ₒ) (StateT σ ProbComp) :=
   QueryImpl.addLift impl challengeQueryImpl
@@ -381,23 +381,23 @@ variable {rel₂ : Set (Stmt₂ × Wit₂)}
 /-- `StateT.run'` as a `map` of `StateT.run`, keeping `StateT.run` in the term. Unfolding
 `StateT.run'` directly leaves a bare application that the `StateT.run`-shaped lemmas below no
 longer match. -/
-private lemma stateT_run'_eq {α : Type} (x : StateT σ ProbComp α) (s : σ) :
+lemma stateT_run'_eq {α : Type} (x : StateT σ ProbComp α) (s : σ) :
     StateT.run' x s = (fun p => p.1) <$> StateT.run x s := rfl
 
 /-- Two binds with the same prefix and pointwise-equal continuation events have the same
 event probability. -/
-private lemma probEvent_bind_congr {α β γ : Type} (mx : ProbComp α) {f : α → ProbComp β}
+lemma probEvent_bind_congr {α β γ : Type} (mx : ProbComp α) {f : α → ProbComp β}
     {g : α → ProbComp γ} {p : β → Prop} {q : γ → Prop} (h : ∀ a, Pr[ p | f a] = Pr[ q | g a]) :
     Pr[ p | mx >>= f] = Pr[ q | mx >>= g] := by
   rw [probEvent_bind_eq_tsum, probEvent_bind_eq_tsum]
   exact congrArg tsum (funext fun a => by rw [h a])
 
-private lemma stateT_run'_map {α β : Type} (f : α → β) (x : StateT σ ProbComp α) (s : σ) :
+lemma stateT_run'_map {α β : Type} (f : α → β) (x : StateT σ ProbComp α) (s : σ) :
     StateT.run' (f <$> x) s = f <$> StateT.run' x s := by
   simp only [stateT_run'_eq, StateT.run_map, Functor.map_map]
 
 /-- The state-discarding form of a distributional equality between two simulated runs. -/
-private lemma evalDist_stateT_run'_congr {α : Type} {x y : StateT σ ProbComp α} {s : σ}
+lemma evalDist_stateT_run'_congr {α : Type} {x y : StateT σ ProbComp α} {s : σ}
     (h : 𝒟[StateT.run x s] = 𝒟[StateT.run y s]) : 𝒟[StateT.run' x s] = 𝒟[StateT.run' y s] := by
   rw [stateT_run'_eq, stateT_run'_eq, evalDist_map, evalDist_map, h]
 
