@@ -461,7 +461,8 @@ theorem probEvent_ksExecInstr_le_two [Nonempty Wit₂]
     StateT.run_map, bind_map_left, ← bind_assoc]
   refine probEvent_bind_le_of_forall_le fun q _ => ?_
   rw [ksTail_eq verify E₁ E₂ V₂ P stmtOut stmtIn q.1 (verify stmtIn q.1.1) rfl,
-    ← probEvent_map, ← Reduction.stateT_run'_eq, probEvent_of_evalDist_eq (Reduction.evalDist_stateT_run'_congr
+    ← probEvent_map, ← Reduction.stateT_run'_eq,
+    probEvent_of_evalDist_eq (Reduction.evalDist_stateT_run'_congr
       (Reduction.evalDist_simulateQ_liftM_right (impl := impl) (pSpec₁ := pSpec₁)
         (ksTailRight verify E₁ E₂ V₂ P stmtIn q.1 (verify stmtIn q.1.1)) q.2))]
   exact probEvent_ksTailRight_le hE₂ verify E₁ V₂ P stmtIn h₂ q.1 _ q.2
