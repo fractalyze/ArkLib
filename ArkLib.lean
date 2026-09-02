@@ -302,6 +302,7 @@ import ArkLib.OracleReduction.Security.CoordinateWiseSpecialSoundness.Package
 import ArkLib.OracleReduction.Security.CoordinateWiseSpecialSoundness.ScalarRound
 import ArkLib.OracleReduction.Security.CoordinateWiseSpecialSoundness.SingleRound
 import ArkLib.OracleReduction.Security.Implications
+import ArkLib.OracleReduction.Security.RandomizedAdversary
 import ArkLib.OracleReduction.Security.RbrGame
 import ArkLib.OracleReduction.Security.Rewinding
 import ArkLib.OracleReduction.Security.RoundByRound
