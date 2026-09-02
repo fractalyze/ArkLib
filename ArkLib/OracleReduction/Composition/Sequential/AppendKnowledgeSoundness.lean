@@ -138,7 +138,8 @@ theorem exec_eq_of_logIndependent
             (pure (stmtIn, w?, r.2, r.1.2.2) :
               OptionT (OracleComp (oSpec + [pSpec.Challenge]ₒ)) _)) := by
   let cont : ((pSpec.FullTranscript × StmtOut × WitOut) × StmtOut) →
-      OptionT (OracleComp (oSpec + [pSpec.Challenge]ₒ)) (StmtIn × Option WitIn × StmtOut × WitOut) :=
+      OptionT (OracleComp (oSpec + [pSpec.Challenge]ₒ))
+        (StmtIn × Option WitIn × StmtOut × WitOut) :=
     fun r => liftM (E stmtIn r.1.2.2 r.1.1 [] []).run >>= fun w? =>
       pure (stmtIn, w?, r.2, r.1.2.2)
   have h1 : ((Reduction.mk P V).runWithLog stmtIn witIn >>= fun r =>
