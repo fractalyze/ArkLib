@@ -152,7 +152,7 @@ theorem liftM_run_left_eq_map (stmt : Stmt₁) (wit : Wit₁) :
           let o₂ ← (liftM (R₁.verifier.verify stmt x.1).run : Comp oSpec pSpec₁ pSpec₂ _)
           pure (x, o₂)) := by
   rw [run_run_flat]
-  simp only [liftM_bind, Prover.liftM_liftM_base, map_bind, bind_assoc, pure_bind]
+  simp only [liftM_bind, Prover.liftM_liftM_base, map_bind]
   refine bind_congr fun x => bind_congr fun o => ?_
   cases o <;> simp
 
@@ -170,7 +170,7 @@ theorem liftM_run_right_eq_map (s₂ : Stmt₂) (w₂ : Wit₂)
           Option.elim o₃ (pure none) fun s₃ =>
             pure (some ((tr₁ ++ₜ y.1, y.2.1, y.2.2), s₃))) := by
   rw [run_run_flat]
-  simp only [liftM_bind, Prover.liftM_liftM_base_right, map_bind, bind_assoc, pure_bind]
+  simp only [liftM_bind, Prover.liftM_liftM_base_right, map_bind]
   refine bind_congr fun y => bind_congr fun o => ?_
   cases o <;> simp
 
@@ -294,5 +294,201 @@ theorem evalDist_append_run_swapped
   exact hcomm.bind_prefix _ _ _ _ s
 
 end ChallengeRestrict
+
+section Phases
+
+variable {σ : Type} [∀ i, SampleableType (pSpec₁.Challenge i)]
+  [∀ i, SampleableType (pSpec₂.Challenge i)]
+  {impl : QueryImpl oSpec (StateT σ ProbComp)}
+
+/-- **The first phase of the swapped appended run:** `P₁` then `V₁`, keeping both the prover's
+output context and the verifier's (possibly failing) output statement. Keeping the pair rather
+than collapsing to an `Option` is what lets the second phase still see `P₁`'s transcript. -/
+def appendPhase₁ (R₁ : Reduction oSpec Stmt₁ Wit₁ Stmt₂ Wit₂ pSpec₁) (stmt : Stmt₁) (wit : Wit₁) :
+    Comp oSpec pSpec₁ pSpec₂ ((pSpec₁.FullTranscript × Stmt₂ × Wit₂) × Option Stmt₂) := do
+  let x ← (liftM (Prover.run stmt wit R₁.prover) : Comp oSpec pSpec₁ pSpec₂ _)
+  let o₂ ← (liftM (R₁.verifier.verify stmt x.1).run : Comp oSpec pSpec₁ pSpec₂ _)
+  pure (x, o₂)
+
+/-- **The second phase of the swapped appended run:** `P₂` then `V₂`, on the first phase's
+output. `P₂` runs whatever `V₁` returned -- that is what the appended reduction does, and the
+completeness bound only needs the branch where `V₁` accepted. -/
+def appendPhase₂ (R₂ : Reduction oSpec Stmt₂ Wit₂ Stmt₃ Wit₃ pSpec₂)
+    (p : (pSpec₁.FullTranscript × Stmt₂ × Wit₂) × Option Stmt₂) :
+    Comp oSpec pSpec₁ pSpec₂
+      (Option (((pSpec₁ ++ₚ pSpec₂).FullTranscript × Stmt₃ × Wit₃) × Stmt₃)) := do
+  let y ← (liftM (Prover.run p.1.2.1 p.1.2.2 R₂.prover) : Comp oSpec pSpec₁ pSpec₂ _)
+  Option.elim p.2 (pure none) fun s₂ => do
+    let o₃ ← (liftM (R₂.verifier.verify s₂ y.1).run : Comp oSpec pSpec₁ pSpec₂ _)
+    Option.elim o₃ (pure none) fun s₃ => pure (some ((p.1.1 ++ₜ y.1, y.2.1, y.2.2), s₃))
+
+/-- **The appended run as two phases.** The swap of `evalDist_append_run_swapped`, with the
+result split at the point where `R₁` ends and `R₂` begins -- the shape
+`OracleComp.one_sub_le_probEvent_bind` consumes. -/
+theorem evalDist_append_run_phases
+    (hcomm : (pImplOf (pSpec₁ ++ₚ pSpec₂) impl).IsCommutative)
+    (R₁ : Reduction oSpec Stmt₁ Wit₁ Stmt₂ Wit₂ pSpec₁)
+    (R₂ : Reduction oSpec Stmt₂ Wit₂ Stmt₃ Wit₃ pSpec₂) (stmt : Stmt₁) (wit : Wit₁) (s : σ) :
+    𝒟[StateT.run (simulateQ (pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+        (Reduction.run stmt wit (R₁.append R₂)).run) s]
+      = 𝒟[StateT.run (simulateQ (pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+              (appendPhase₁ R₁ stmt wit)) s >>= fun p =>
+            StateT.run (simulateQ (pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+              (appendPhase₂ R₂ p.1)) p.2] := by
+  have hsplit : (appendPhase₁ R₁ stmt wit >>= appendPhase₂ R₂) = (do
+      let x ← (liftM (Prover.run stmt wit R₁.prover) : Comp oSpec pSpec₁ pSpec₂ _)
+      let o₂ ← (liftM (R₁.verifier.verify stmt x.1).run : Comp oSpec pSpec₁ pSpec₂ _)
+      let y ← (liftM (Prover.run x.2.1 x.2.2 R₂.prover) : Comp oSpec pSpec₁ pSpec₂ _)
+      Option.elim o₂ (pure none) fun s₂ => do
+        let o₃ ← (liftM (R₂.verifier.verify s₂ y.1).run : Comp oSpec pSpec₁ pSpec₂ _)
+        Option.elim o₃ (pure none) fun s₃ =>
+          pure (some ((x.1 ++ₜ y.1, y.2.1, y.2.2), s₃))) := by
+    simp only [appendPhase₁, appendPhase₂, bind_assoc, pure_bind]
+  rw [evalDist_append_run_swapped hcomm, ← hsplit]
+  simp only [simulateQ_bind, StateT.run_bind, evalDist_bind]
+
+variable {rel₂ : Set (Stmt₂ × Wit₂)}
+
+/-- `StateT.run'` as a `map` of `StateT.run`, keeping `StateT.run` in the term. Unfolding
+`StateT.run'` directly leaves a bare application that the `StateT.run`-shaped lemmas below no
+longer match. -/
+private lemma stateT_run'_eq {α : Type} (x : StateT σ ProbComp α) (s : σ) :
+    StateT.run' x s = (fun p => p.1) <$> StateT.run x s := rfl
+
+/-- Two binds with the same prefix and pointwise-equal continuation events have the same
+event probability. -/
+private lemma probEvent_bind_congr {α β γ : Type} (mx : ProbComp α) {f : α → ProbComp β}
+    {g : α → ProbComp γ} {p : β → Prop} {q : γ → Prop} (h : ∀ a, Pr[ p | f a] = Pr[ q | g a]) :
+    Pr[ p | mx >>= f] = Pr[ q | mx >>= g] := by
+  rw [probEvent_bind_eq_tsum, probEvent_bind_eq_tsum]
+  exact congrArg tsum (funext fun a => by rw [h a])
+
+private lemma stateT_run'_map {α β : Type} (f : α → β) (x : StateT σ ProbComp α) (s : σ) :
+    StateT.run' (f <$> x) s = f <$> StateT.run' x s := by
+  simp only [stateT_run'_eq, StateT.run_map, Functor.map_map]
+
+/-- The state-discarding form of a distributional equality between two simulated runs. -/
+private lemma evalDist_stateT_run'_congr {α : Type} {x y : StateT σ ProbComp α} {s : σ}
+    (h : 𝒟[StateT.run x s] = 𝒟[StateT.run y s]) : 𝒟[StateT.run' x s] = 𝒟[StateT.run' y s] := by
+  rw [stateT_run'_eq, stateT_run'_eq, evalDist_map, evalDist_map, h]
+
+/-- **The first phase's good event is `R₁`'s completeness event.** Left-hand side: `V₁`
+accepted, and its output statement is in `rel₂` with `P₁`'s witness and equal to `P₁`'s output
+statement. Right-hand side: exactly `Reduction.completeness`'s event for `R₁`. -/
+theorem probEvent_appendPhase₁_eq (R₁ : Reduction oSpec Stmt₁ Wit₁ Stmt₂ Wit₂ pSpec₁)
+    (stmt : Stmt₁) (wit : Wit₁) (s : σ) :
+    Pr[ fun p : ((pSpec₁.FullTranscript × Stmt₂ × Wit₂) × Option Stmt₂) × σ =>
+          Option.elim p.1.2 False fun s₂ => (s₂, p.1.1.2.2) ∈ rel₂ ∧ p.1.1.2.1 = s₂ |
+        StateT.run (simulateQ (pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+          (appendPhase₁ R₁ stmt wit)) s]
+      = Pr[ fun r : (pSpec₁.FullTranscript × Stmt₂ × Wit₂) × Stmt₂ =>
+              (r.2, r.1.2.2) ∈ rel₂ ∧ r.1.2.1 = r.2 |
+          OptionT.mk (StateT.run' (simulateQ (pImplOf pSpec₁ impl)
+            (Reduction.run stmt wit R₁).run) s)] := by
+  rw [OptionT.probEvent_mk, stateT_run'_eq, probEvent_map,
+    probEvent_of_evalDist_eq (evalDist_simulateQ_liftM_left (impl := impl) (pSpec₂ := pSpec₂)
+      (Reduction.run stmt wit R₁).run s).symm,
+    liftM_run_left_eq_map, simulateQ_map, StateT.run_map, probEvent_map]
+  unfold appendPhase₁
+  refine congrArg _ (funext fun p => ?_)
+  rcases hp : p.1.2 with _ | s₂ <;> simp [hp, Function.comp]
+
+
+variable {rel₃ : Set (Stmt₃ × Wit₃)}
+
+/-- **The second phase's good event is `R₂`'s completeness event.** On the branch where `V₁`
+accepted with `s₂` and the prover agreed (`hx`), the second phase is `R₂.run s₂` -- with `P₁`'s
+transcript prepended to the output, which the event does not look at. -/
+theorem probEvent_appendPhase₂_eq (R₂ : Reduction oSpec Stmt₂ Wit₂ Stmt₃ Wit₃ pSpec₂)
+    (x : pSpec₁.FullTranscript × Stmt₂ × Wit₂) (s₂ : Stmt₂) (hx : x.2.1 = s₂) (s₁ : σ) :
+    Pr[ fun o : Option (((pSpec₁ ++ₚ pSpec₂).FullTranscript × Stmt₃ × Wit₃) × Stmt₃) =>
+          Option.elim o False fun r => (r.2, r.1.2.2) ∈ rel₃ ∧ r.1.2.1 = r.2 |
+        StateT.run' (simulateQ (pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+          (appendPhase₂ R₂ (x, some s₂))) s₁]
+      = Pr[ fun r : (pSpec₂.FullTranscript × Stmt₃ × Wit₃) × Stmt₃ =>
+              (r.2, r.1.2.2) ∈ rel₃ ∧ r.1.2.1 = r.2 |
+          OptionT.mk (StateT.run' (simulateQ (pImplOf pSpec₂ impl)
+            (Reduction.run s₂ x.2.2 R₂).run) s₁)] := by
+  have hphase : appendPhase₂ R₂ (x, some s₂)
+      = (Option.map (fun q : (pSpec₂.FullTranscript × Stmt₃ × Wit₃) × Stmt₃ =>
+            ((x.1 ++ₜ q.1.1, q.1.2.1, q.1.2.2), q.2))) <$>
+          (liftM ((Reduction.run s₂ x.2.2 R₂).run) : Comp oSpec pSpec₁ pSpec₂ _) := by
+    rw [liftM_run_right_eq_map]
+    simp only [appendPhase₂, hx, Option.elim]
+  rw [hphase, simulateQ_map, stateT_run'_map, probEvent_map, OptionT.probEvent_mk,
+    probEvent_of_evalDist_eq (evalDist_stateT_run'_congr
+      (evalDist_simulateQ_liftM_right (impl := impl) (pSpec₁ := pSpec₁)
+        (Reduction.run s₂ x.2.2 R₂).run s₁))]
+  refine congrArg _ (funext fun o => ?_)
+  cases o <;> simp [Function.comp]
+
+
+variable {rel₁ : Set (Stmt₁ × Wit₁)} (init : ProbComp σ)
+
+open scoped NNReal in
+/-- **Sequential composition preserves completeness.**
+
+Two hypotheses beyond the original statement, both forced and both exhibited as necessary:
+
+* `hcomm` -- the handler answers queries commutatively. `Reduction.append` runs `P₁, P₂, V₁,
+  V₂` while `R₁` then `R₂` runs `P₁, V₁, P₂, V₂`, and `AppendCounterexample.lean` gives two
+  perfectly complete reductions whose append rejects with probability one under a handler that
+  reports the order it was called in.
+* `h₂` at every initial state -- `R₂` starts from whatever state `R₁` left behind, not from a
+  fresh `init`. Commutativity says the two *orders* agree; it says nothing about `R₂` run from
+  a state `R₁` has already written to.
+
+Both are free when the handler is stateless (`QueryImpl.IsStateless`), which is the case at
+`oSpec = []ₒ`; see `append_completeness_of_isStateless`. -/
+theorem append_completeness'
+    (hcomm : (pImplOf (pSpec₁ ++ₚ pSpec₂) impl).IsCommutative)
+    (R₁ : Reduction oSpec Stmt₁ Wit₁ Stmt₂ Wit₂ pSpec₁)
+    (R₂ : Reduction oSpec Stmt₂ Wit₂ Stmt₃ Wit₃ pSpec₂) {ε₁ ε₂ : ℝ≥0}
+    (h₁ : R₁.completeness init impl rel₁ rel₂ ε₁)
+    (h₂ : ∀ s : σ, R₂.completeness (pure s) impl rel₂ rel₃ ε₂) :
+      (R₁.append R₂).completeness init impl rel₁ rel₃ (ε₁ + ε₂) := by
+  intro stmtIn witIn hRelIn
+  dsimp only
+  rw [ge_iff_le, OptionT.probEvent_mk]
+  have hphases : ∀ s₀ : σ, 𝒟[StateT.run' (simulateQ (pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+        (Reduction.run stmtIn witIn (R₁.append R₂)).run) s₀]
+      = 𝒟[StateT.run (simulateQ (pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+              (appendPhase₁ R₁ stmtIn witIn)) s₀ >>= fun p =>
+            StateT.run' (simulateQ (pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+              (appendPhase₂ R₂ p.1)) p.2] := by
+    intro s₀
+    rw [stateT_run'_eq, evalDist_map, evalDist_append_run_phases hcomm]
+    simp only [stateT_run'_eq, evalDist_bind, evalDist_map, map_bind]
+  have hbind : 𝒟[init >>= fun s₀ =>
+        StateT.run' (simulateQ (pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+          (Reduction.run stmtIn witIn (R₁.append R₂)).run) s₀]
+      = 𝒟[(init >>= fun s₀ =>
+            StateT.run (simulateQ (pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+              (appendPhase₁ R₁ stmtIn witIn)) s₀) >>= fun p =>
+            StateT.run' (simulateQ (pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+              (appendPhase₂ R₂ p.1)) p.2] := by
+    simp only [evalDist_bind, bind_assoc]
+    exact bind_congr fun s₀ => by rw [hphases s₀, evalDist_bind]
+  rw [probEvent_of_evalDist_eq hbind, ENNReal.coe_add]
+  refine one_sub_le_probEvent_bind (P := fun p => Option.elim p.1.2 False
+      fun s₂ => (s₂, p.1.1.2.2) ∈ rel₂ ∧ p.1.1.2.1 = s₂) ?_ ?_
+  · have hcomp := h₁ stmtIn witIn hRelIn
+    dsimp only at hcomp
+    rw [ge_iff_le, OptionT.probEvent_mk] at hcomp
+    refine le_trans hcomp (le_of_eq ?_)
+    exact (probEvent_bind_congr init fun s₀ =>
+      (probEvent_appendPhase₁_eq R₁ stmtIn witIn s₀).trans (OptionT.probEvent_mk _ _)).symm
+  · rintro ⟨⟨x, (_ | s₂)⟩, s₁⟩ hp
+    · exact absurd hp id
+    · obtain ⟨hrel, hprv⟩ := hp
+      have hc := h₂ s₁ s₂ x.2.2 hrel
+      dsimp only at hc
+      rw [ge_iff_le, OptionT.probEvent_mk] at hc
+      rw [probEvent_appendPhase₂_eq R₂ x s₂ hprv s₁, OptionT.probEvent_mk]
+      simpa using hc
+
+end Phases
+
+
 
 end Reduction

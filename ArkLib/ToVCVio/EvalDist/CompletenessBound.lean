@@ -57,3 +57,23 @@ lemma one_sub_le_probEvent_bind {mx : ProbComp α} {f : α → ProbComp β}
     _ ≤ (1 - ε₂) * (1 - ε₁) := sub_le_one_sub_mul tsub_le_self
 
 end OracleComp
+
+/-- **An `OptionT` event, seen from the underlying `Option`-valued computation.** Security
+definitions phrase the good event as `Pr[P | OptionT.mk mz]`, while the bind lemmas above act
+on `mz` itself; this is the translation, with failure counting against the event. -/
+lemma OptionT.probEvent_mk {m : Type → Type} [Monad m] [LawfulMonad m] [MonadLiftT m SPMF]
+    [LawfulMonadLiftT m SPMF] {α : Type} (mz : m (Option α)) (P : α → Prop) :
+    Pr[ P | (OptionT.mk mz : OptionT m α)] = Pr[ fun o => o.elim False P | mz] := by
+  classical
+  simp only [probEvent_eq_tsum_indicator, OptionT.probOutput_eq, OptionT.run_mk]
+  rw [tsum_option _ ENNReal.summable]
+  simp only [Set.indicator_apply, Set.mem_setOf_eq, Option.elim]
+  simp
+
+/-- Two computations with the same distribution assign the same probability to every event.
+`probEvent` is defined from `evalDist`, so this is immediate; it is stated because the
+composition lemmas below rewrite under `Pr[· | _]` with distributional equalities. -/
+lemma probEvent_of_evalDist_eq {m₁ m₂ : Type → Type} [Monad m₁] [MonadLiftT m₁ SPMF]
+    [Monad m₂] [MonadLiftT m₂ SPMF] {α : Type} {mx : m₁ α} {my : m₂ α}
+    (h : 𝒟[mx] = 𝒟[my]) (p : α → Prop) : Pr[ p | mx] = Pr[ p | my] := by
+  simp only [probEvent, h]
