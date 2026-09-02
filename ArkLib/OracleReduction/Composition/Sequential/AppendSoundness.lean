@@ -33,12 +33,12 @@ namespace Reduction
 
 /-- The appended protocol's ambient computation monad, named so the statements below fit on a
 line. -/
-private abbrev Comp (oSpec : OracleSpec ι) (pSpec₁ : ProtocolSpec m) (pSpec₂ : ProtocolSpec n) :=
+abbrev Comp (oSpec : OracleSpec ι) (pSpec₁ : ProtocolSpec m) (pSpec₂ : ProtocolSpec n) :=
   OracleComp (oSpec + [(pSpec₁ ++ₚ pSpec₂).Challenge]ₒ)
 
 /-- The adversary's private state at the cut: `takeLeft`'s output witness, and `dropLeft`'s input
 witness. The soundness game quantifies over the witness types, so this is a legal choice. -/
-private abbrev CutState (P : Prover oSpec Stmt₁ Wit₁ Stmt₃ Wit₃ (pSpec₁ ++ₚ pSpec₂)) : Type :=
+abbrev CutState (P : Prover oSpec Stmt₁ Wit₁ Stmt₃ Wit₃ (pSpec₁ ++ₚ pSpec₂)) : Type :=
   P.PrvState (Prover.leftIdx n (Fin.last m))
 
 /-- **An adversarial appended run, split apart.** The prover is arbitrary, so its two halves come

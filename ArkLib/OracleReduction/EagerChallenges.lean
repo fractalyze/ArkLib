@@ -309,7 +309,7 @@ private lemma evalDist_pull {α β γ δ : Type} (A : ProbComp α) (R : α → P
 open OracleComp.DeferredSampling in
 /-- Two computations with the same distribution have the same distribution after a common
 continuation. -/
-private lemma evalDist_bind_congr_prefix {α β : Type} {A B : ProbComp α} (h : 𝒟[A] = 𝒟[B])
+lemma evalDist_bind_congr_prefix {α β : Type} {A B : ProbComp α} (h : 𝒟[A] = 𝒟[B])
     (K : α → ProbComp β) : 𝒟[A >>= K] = 𝒟[B >>= K] := by
   rw [evalDist_bind, evalDist_bind, h]
 

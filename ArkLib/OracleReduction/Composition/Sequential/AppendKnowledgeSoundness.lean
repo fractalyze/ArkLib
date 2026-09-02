@@ -122,6 +122,22 @@ namespace Verifier
 
 variable {StmtIn WitIn StmtOut WitOut : Type} {N : ℕ} {pSpec : ProtocolSpec N}
 
+/-- The knowledge-soundness game's run, for a log-blind extractor: no logs, and the reduction run
+in its ordinary (`Reduction.run`) form. -/
+def ksExec (E : Extractor.Straightline oSpec StmtIn WitIn WitOut pSpec)
+    (V : Verifier oSpec StmtIn StmtOut pSpec)
+    (P : Prover oSpec StmtIn WitIn StmtOut WitOut pSpec) (stmtIn : StmtIn) (witIn : WitIn) :
+    OptionT (OracleComp (oSpec + [pSpec.Challenge]ₒ))
+      (StmtIn × Option WitIn × StmtOut × WitOut) :=
+  (Reduction.mk P V).run stmtIn witIn >>= fun r =>
+    liftM (E stmtIn r.1.2.2 r.1.1 [] []).run >>= fun w? => pure (stmtIn, w?, r.2, r.1.2.2)
+
+/-- The knowledge-soundness bad event: the extractor failed to produce a witness for the input
+relation, while the run's own output was a valid pair for the output relation. -/
+def ksBad (relIn : Set (StmtIn × WitIn)) (relOut : Set (StmtOut × WitOut)) :
+    StmtIn × Option WitIn × StmtOut × WitOut → Prop :=
+  fun p => (∀ w ∈ p.2.1, (p.1, w) ∉ relIn) ∧ (p.2.2.1, p.2.2.2) ∈ relOut
+
 /-- **The knowledge-soundness game, with the logs gone.** For a log-independent extractor the game
 only ever *produces* its logs, so the whole run can be taken log-free -- which is what puts it
 back in reach of the `Reduction.run` machinery the soundness composition is built on. -/
@@ -133,10 +149,7 @@ theorem exec_eq_of_logIndependent
         liftM (E stmtIn r.1.1.2.2 r.1.1.1 r.2.1.fst r.2.2).run >>= fun w? =>
           (pure (stmtIn, w?, r.1.2, r.1.1.2.2) :
             OptionT (OracleComp (oSpec + [pSpec.Challenge]ₒ)) _))
-      = ((Reduction.mk P V).run stmtIn witIn >>= fun r =>
-          liftM (E stmtIn r.1.2.2 r.1.1 [] []).run >>= fun w? =>
-            (pure (stmtIn, w?, r.2, r.1.2.2) :
-              OptionT (OracleComp (oSpec + [pSpec.Challenge]ₒ)) _)) := by
+      = ksExec E V P stmtIn witIn := by
   let cont : ((pSpec.FullTranscript × StmtOut × WitOut) × StmtOut) →
       OptionT (OracleComp (oSpec + [pSpec.Challenge]ₒ))
         (StmtIn × Option WitIn × StmtOut × WitOut) :=
@@ -156,5 +169,147 @@ theorem exec_eq_of_logIndependent
       = (Prod.fst <$> (Reduction.mk P V).runWithLog stmtIn witIn) >>= cont :=
     (bind_map_left _ _ _).symm
   rw [h1, h2, Reduction.runWithLog_discard_logs_eq_run]
+  rfl
+
+open scoped NNReal in
+/-- Knowledge soundness for a log-blind extractor, restated on the log-free game. -/
+theorem knowledgeSoundnessWith_iff_ksExec [∀ i, SampleableType (pSpec.Challenge i)]
+    {σ : Type} {init : ProbComp σ} {impl : QueryImpl oSpec (StateT σ ProbComp)}
+    {relIn : Set (StmtIn × WitIn)} {relOut : Set (StmtOut × WitOut)}
+    {V : Verifier oSpec StmtIn StmtOut pSpec}
+    {E : Extractor.Straightline oSpec StmtIn WitIn WitOut pSpec} (hE : E.IsLogIndependent)
+    {ε : ℝ≥0} :
+    V.knowledgeSoundnessWith init impl relIn relOut E ε
+      ↔ ∀ (stmtIn : StmtIn) (witIn : WitIn)
+          (P : Prover oSpec StmtIn WitIn StmtOut WitOut pSpec),
+          Pr[ ksBad relIn relOut | OptionT.mk (init >>= fun s =>
+            StateT.run' (simulateQ (QueryImpl.addLift impl challengeQueryImpl :
+                QueryImpl (oSpec + [pSpec.Challenge]ₒ) (StateT σ ProbComp))
+              (ksExec E V P stmtIn witIn).run) s)] ≤ ε := by
+  unfold Verifier.knowledgeSoundnessWith
+  refine forall_congr' fun stmtIn => forall_congr' fun witIn => forall_congr' fun P => ?_
+  dsimp only
+  rw [exec_eq_of_logIndependent hE]
+  rfl
 
 end Verifier
+
+section Compose
+
+namespace Verifier
+
+/-- The appended game, instrumented with the intermediate statement and the witness `E₂` extracted.
+Neither is in the game's own output, and the union bound splits on both, so they are carried along
+and projected away afterwards. -/
+def ksExecInstr (verify : Stmt₁ → pSpec₁.FullTranscript → Stmt₂)
+    (E₁ : Extractor.Straightline oSpec Stmt₁ Wit₁ Wit₂ pSpec₁)
+    (E₂ : Extractor.Straightline oSpec Stmt₂ Wit₂ Wit₃ pSpec₂)
+    (V₁ : Verifier oSpec Stmt₁ Stmt₂ pSpec₁) (V₂ : Verifier oSpec Stmt₂ Stmt₃ pSpec₂)
+    (P : Prover oSpec Stmt₁ Wit₁ Stmt₃ Wit₃ (pSpec₁ ++ₚ pSpec₂))
+    (stmtIn : Stmt₁) (witIn : Wit₁) :
+    OptionT (OracleComp (oSpec + [(pSpec₁ ++ₚ pSpec₂).Challenge]ₒ))
+      ((Stmt₁ × Option Wit₁ × Stmt₃ × Wit₃) × Stmt₂ × Option Wit₂) :=
+  (Reduction.mk P (V₁.append V₂)).run stmtIn witIn >>= fun r =>
+    (liftM ((liftM (E₂ (verify stmtIn r.1.1.fst) r.1.2.2 r.1.1.snd [] []).run :
+        OracleComp (oSpec + [(pSpec₁ ++ₚ pSpec₂).Challenge]ₒ) _)) :
+        OptionT (OracleComp (oSpec + [(pSpec₁ ++ₚ pSpec₂).Challenge]ₒ)) _) >>= fun w₂? =>
+      (liftM ((liftM (w₂?.elim (pure none) fun w₂ => (E₁ stmtIn w₂ r.1.1.fst [] []).run) :
+          OracleComp (oSpec + [(pSpec₁ ++ₚ pSpec₂).Challenge]ₒ) _)) :
+          OptionT (OracleComp (oSpec + [(pSpec₁ ++ₚ pSpec₂).Challenge]ₒ)) _) >>= fun w₁? =>
+        pure ((stmtIn, w₁?, r.2, r.1.2.2), verify stmtIn r.1.1.fst, w₂?)
+
+/-- The game is the instrumented game with the instrumentation forgotten. -/
+theorem ksExec_appendDet_eq (verify : Stmt₁ → pSpec₁.FullTranscript → Stmt₂)
+    (E₁ : Extractor.Straightline oSpec Stmt₁ Wit₁ Wit₂ pSpec₁)
+    (E₂ : Extractor.Straightline oSpec Stmt₂ Wit₂ Wit₃ pSpec₂)
+    (V₁ : Verifier oSpec Stmt₁ Stmt₂ pSpec₁) (V₂ : Verifier oSpec Stmt₂ Stmt₃ pSpec₂)
+    (P : Prover oSpec Stmt₁ Wit₁ Stmt₃ Wit₃ (pSpec₁ ++ₚ pSpec₂))
+    (stmtIn : Stmt₁) (witIn : Wit₁) :
+    ksExec (Extractor.Straightline.appendDet verify E₁ E₂) (V₁.append V₂) P stmtIn witIn
+      = Prod.fst <$> ksExecInstr verify E₁ E₂ V₁ V₂ P stmtIn witIn := by
+  unfold ksExec ksExecInstr Extractor.Straightline.appendDet
+  rw [map_bind]
+  refine bind_congr fun r => ?_
+  simp only [OptionT.run_bind, Option.elimM, liftM_bind, bind_assoc, map_bind, map_pure,
+    monadLift_liftM_OptionT]
+
+/-- The two extractors and the packaging, run on the reduction's (possibly failing) result. -/
+def ksExtractTail (verify : Stmt₁ → pSpec₁.FullTranscript → Stmt₂)
+    (E₁ : Extractor.Straightline oSpec Stmt₁ Wit₁ Wit₂ pSpec₁)
+    (E₂ : Extractor.Straightline oSpec Stmt₂ Wit₂ Wit₃ pSpec₂) (stmtIn : Stmt₁)
+    (o : Option (((pSpec₁ ++ₚ pSpec₂).FullTranscript × Stmt₃ × Wit₃) × Stmt₃)) :
+    OracleComp (oSpec + [(pSpec₁ ++ₚ pSpec₂).Challenge]ₒ)
+      (Option ((Stmt₁ × Option Wit₁ × Stmt₃ × Wit₃) × Stmt₂ × Option Wit₂)) :=
+  Option.elim o (pure none) fun r =>
+    liftM (E₂ (verify stmtIn r.1.1.fst) r.1.2.2 r.1.1.snd [] []).run >>= fun w₂? =>
+      liftM (w₂?.elim (pure none) fun w₂ => (E₁ stmtIn w₂ r.1.1.fst [] []).run) >>= fun w₁? =>
+        pure (some ((stmtIn, w₁?, r.2, r.1.2.2), verify stmtIn r.1.1.fst, w₂?))
+
+/-- Everything the instrumented game does after the cut: the second half's phase, then the
+extractors. -/
+def ksTail (verify : Stmt₁ → pSpec₁.FullTranscript → Stmt₂)
+    (E₁ : Extractor.Straightline oSpec Stmt₁ Wit₁ Wit₂ pSpec₁)
+    (E₂ : Extractor.Straightline oSpec Stmt₂ Wit₂ Wit₃ pSpec₂)
+    (V₂ : Verifier oSpec Stmt₂ Stmt₃ pSpec₂)
+    (P : Prover oSpec Stmt₁ Wit₁ Stmt₃ Wit₃ (pSpec₁ ++ₚ pSpec₂)) (stmtOut : Stmt₂)
+    (stmtIn : Stmt₁)
+    (p : (pSpec₁.FullTranscript × Stmt₂ × Reduction.CutState P) × Option Stmt₂) :
+    OracleComp (oSpec + [(pSpec₁ ++ₚ pSpec₂).Challenge]ₒ)
+      (Option ((Stmt₁ × Option Wit₁ × Stmt₃ × Wit₃) × Stmt₂ × Option Wit₂)) :=
+  Reduction.soundPhase₂ P V₂ stmtOut p >>= ksExtractTail verify E₁ E₂ stmtIn
+
+/-- The instrumented game is the appended run followed by the extractor tail. -/
+theorem ksExecInstr_run_eq (verify : Stmt₁ → pSpec₁.FullTranscript → Stmt₂)
+    (E₁ : Extractor.Straightline oSpec Stmt₁ Wit₁ Wit₂ pSpec₁)
+    (E₂ : Extractor.Straightline oSpec Stmt₂ Wit₂ Wit₃ pSpec₂)
+    (V₁ : Verifier oSpec Stmt₁ Stmt₂ pSpec₁) (V₂ : Verifier oSpec Stmt₂ Stmt₃ pSpec₂)
+    (P : Prover oSpec Stmt₁ Wit₁ Stmt₃ Wit₃ (pSpec₁ ++ₚ pSpec₂))
+    (stmtIn : Stmt₁) (witIn : Wit₁) :
+    (ksExecInstr verify E₁ E₂ V₁ V₂ P stmtIn witIn).run
+      = ((Reduction.mk P (V₁.append V₂)).run stmtIn witIn).run
+          >>= ksExtractTail verify E₁ E₂ stmtIn := by
+  unfold ksExecInstr ksExtractTail
+  rw [OptionT.run_bind]
+  refine bind_congr fun o => ?_
+  cases o with
+  | none => simp [Option.elimM]
+  | some r =>
+    simp only [Option.elimM, Option.elim]
+    refine Eq.trans (OptionT.run_liftM_bind _ _) (bind_congr fun w₂? => ?_)
+    exact OptionT.run_liftM_bind _ _
+
+variable {σ : Type} [∀ i, SampleableType (pSpec₁.Challenge i)]
+  [∀ i, SampleableType (pSpec₂.Challenge i)]
+  {impl : QueryImpl oSpec (StateT σ ProbComp)} {init : ProbComp σ}
+  {rel₁ : Set (Stmt₁ × Wit₁)} {rel₂ : Set (Stmt₂ × Wit₂)} {rel₃ : Set (Stmt₃ × Wit₃)}
+
+/-- **The instrumented game, split at the cut.** The swap of
+`Reduction.evalDist_mk_append_run_swapped`, carried through the extractor tail. -/
+theorem evalDist_ksExecInstr_split
+    (hcomm : (Reduction.pImplOf (pSpec₁ ++ₚ pSpec₂) impl).IsCommutative)
+    (verify : Stmt₁ → pSpec₁.FullTranscript → Stmt₂)
+    (E₁ : Extractor.Straightline oSpec Stmt₁ Wit₁ Wit₂ pSpec₁)
+    (E₂ : Extractor.Straightline oSpec Stmt₂ Wit₂ Wit₃ pSpec₂)
+    (V₁ : Verifier oSpec Stmt₁ Stmt₂ pSpec₁) (V₂ : Verifier oSpec Stmt₂ Stmt₃ pSpec₂)
+    (P : Prover oSpec Stmt₁ Wit₁ Stmt₃ Wit₃ (pSpec₁ ++ₚ pSpec₂)) (stmtOut : Stmt₂)
+    (stmtIn : Stmt₁) (witIn : Wit₁) (s : σ) :
+    𝒟[StateT.run (simulateQ (Reduction.pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+        (ksExecInstr verify E₁ E₂ V₁ V₂ P stmtIn witIn).run) s]
+      = 𝒟[StateT.run (simulateQ (Reduction.pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+            (Reduction.soundPhase₁ P V₁ stmtOut stmtIn witIn)) s >>= fun p =>
+          StateT.run (simulateQ (Reduction.pImplOf (pSpec₁ ++ₚ pSpec₂) impl)
+            (ksTail verify E₁ E₂ V₂ P stmtOut stmtIn p.1)) p.2] := by
+  rw [ksExecInstr_run_eq, QueryImpl.evalDist_simulateQ_run_bind,
+    Reduction.evalDist_mk_append_run_phases P V₁ V₂ stmtOut hcomm stmtIn witIn s,
+    evalDist_bind, evalDist_bind, bind_assoc]
+  refine bind_congr fun p => ?_
+  rw [ksTail, QueryImpl.evalDist_simulateQ_run_bind]
+
+/-! The composition theorem itself is not here yet: what is above is the shape it needs -- the
+game taken log-free, instrumented with the two values the union bound splits on, and split at the
+cut. What remains is the two branch bounds, `ε₂` from `h₂` against the adversary's second half and
+`ε₁` from `h₁` against `Prover.takeLeftExtract`, and their assembly by
+`OracleComp.probEvent_le_add_split`. -/
+end Verifier
+
+end Compose

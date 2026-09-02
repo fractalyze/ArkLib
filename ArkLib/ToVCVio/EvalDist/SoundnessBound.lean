@@ -51,4 +51,16 @@ lemma probEvent_bind_le_add {mx : ProbComp α} {f : α → ProbComp β}
   rw [ENNReal.tsum_mul_right]
   simp
 
+
+/-- **Splitting an event on an unrelated predicate.** Subadditivity in its simplest form: the
+bad event is covered by its two halves. Unlike `probEvent_bind_le_add` the predicate need not be
+decided by a prefix -- the two halves may then be bounded by different decompositions of the same
+computation. -/
+lemma probEvent_le_add_split {mx : ProbComp α} (P Q : α → Prop) :
+    Pr[ Q | mx] ≤ Pr[ fun a => Q a ∧ P a | mx] + Pr[ fun a => Q a ∧ ¬ P a | mx] := by
+  classical
+  rw [probEvent_eq_tsum_ite, probEvent_eq_tsum_ite, probEvent_eq_tsum_ite, ← ENNReal.tsum_add]
+  refine ENNReal.tsum_le_tsum fun a => ?_
+  by_cases hQ : Q a <;> by_cases hP : P a <;> simp [hQ, hP]
+
 end OracleComp
