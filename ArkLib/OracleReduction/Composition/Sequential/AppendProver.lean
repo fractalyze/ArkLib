@@ -986,7 +986,10 @@ theorem append_run (stmt : Stmt₁) (wit : Wit₁) :
     exact congrArg (fun s => Prod.mk (p.1 ++ₜ a.1) <$> liftM (P₂.output s))
       (eq_of_heq ((cast_heq _ _).trans (cast_heq _ a.2)))
 
--- TODO: Need to define a function that "extracts" a second prover from the combined prover
+-- The converse -- extracting the two component provers from an arbitrary prover for the appended
+-- protocol, which is what the soundness composition theorems need -- is
+-- `Prover.takeLeft` / `Prover.dropLeft` in `Composition/Sequential/SplitProver.lean`, with
+-- `Prover.run_eq_takeLeft_dropLeft` as the counterpart of `append_run` above.
 
 end Prover
 

@@ -259,4 +259,34 @@ theorem dropLeft_runToRound (stmt : Stmt₁) (wit : Wit₁) :
     simp only [bind_pure_comp]
     exact dropLeft_processRound P w (by omega) (by omega) p.1 _
 
+
+/-- `takeLeft`'s output witness type is `dropLeft`'s input witness type: both are the original
+prover's state at the cut. Spelled out for the same `instances`-transparency reason as
+`takeLeft_prvState_cut`. -/
+theorem prvState_cut_eq :
+    P.PrvState (leftIdx n (Fin.last m)) = P.PrvState (rightIdx m (0 : Fin (n + 1))) := rfl
+
+/-- **The prover splits.** Running an appended prover is running its first `m` rounds, handing the
+private state across the cut, and running the remaining `n` -- with the transcripts concatenated
+and the output the original's, produced by `dropLeft.output`.
+
+This is the converse of `Prover.append_run`, and the form the soundness composition theorems need:
+there the prover is an arbitrary adversary for `pSpec₁ ++ₚ pSpec₂`, not one built by
+`Prover.append`. `stmtOut` is the statement `takeLeft` reports and `dropLeft` is fed; it is
+arbitrary because nothing downstream reads it -- the soundness event reads the *verifier*'s
+output. -/
+theorem run_eq_takeLeft_dropLeft (stmt : Stmt₁) (wit : Wit₁) :
+    P.run stmt wit = (do
+      let p ← liftM ((P.takeLeft stmtOut).run stmt wit)
+      let q ← liftM ((P.dropLeft (Stmt₂ := Stmt₂)).run stmtOut (cast (prvState_cut_eq P) p.2.2))
+      return (p.1 ++ₜ q.1, q.2.1, q.2.2)) := by
+  unfold Prover.run
+  rw [runToRound_last, dropLeft_runToRound P stmtOut stmt wit n le_rfl]
+  simp only [runToRound_last, Prover.takeLeft, Prover.dropLeft, liftM_bind, liftM_map, map_bind,
+    bind_assoc, bind_map_left, liftM_pure, pure_bind, liftTranscriptR_full,
+    liftM_liftM_base_right, bind_pure_comp, Functor.map_map]
+  refine Eq.trans (bind_assoc _ _ _) (bind_congr fun p => ?_)
+  refine Eq.trans (map_bind_left _ _ _) (bind_congr fun a => ?_)
+  rfl
+
 end Prover
