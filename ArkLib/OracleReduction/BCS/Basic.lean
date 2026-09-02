@@ -40,22 +40,25 @@ import ArkLib.OracleReduction.Composition.Sequential.General
   What is actually open, in `ArkLib/OracleReduction/Composition/Sequential/Append.lean`:
 
   - `Verifier.append_run` is proved, by `rfl`. The verifier side of a composition is definitional.
-  - `Prover.append_run` -- running `P₁.append P₂` equals running `P₁` then `P₂` -- is `sorry`.
-    `(R₁.append R₂).run` runs both provers and then both verifiers, whereas running `R₁` then `R₂`
-    interleaves them, and justifying the swap wants the oracle computation in a commutative monad.
-  - `Reduction.append_completeness` and the `Verifier.append_soundness` family are `sorry` in
-    consequence. The n-fold statements in `Composition/Sequential/General.lean` are *derived* from
-    these by induction, so they are not an independent difficulty.
+  - `Prover.append_run` -- running `P₁.append P₂` equals running `P₁` then `P₂` -- is proved.
+  - `Reduction.append_completeness` is proved, but not as it was stated: `(R₁.append R₂).run` runs
+    both provers and then both verifiers, whereas running `R₁` then `R₂` interleaves them, and for
+    a stateful handler the two genuinely differ (`AppendCounterexample.lean`). The repaired
+    theorem lives in `Composition/Sequential/AppendCompleteness.lean` and carries
+    `QueryImpl.IsStateless`, which is free at `oSpec = []ₒ`.
+  - The `Verifier.append_soundness` family is still `sorry`, for that same ordering reason. The
+    n-fold statements in `Composition/Sequential/General.lean` are *derived* from these by
+    induction, so they are not an independent difficulty.
 
-  So the atom is one lemma about one append, on the prover side -- and batching does **not** escape
-  it. Both routes need `Prover.append_run`. What batching buys is:
+  So what is open is the soundness side of one append -- and batching does **not** escape it.
+  What batching buys is:
 
   1. A **static arity**. The sequential round count `n + ∑ i, nCom i` sums over the verifier's
      query list, a runtime value -- the stub this file replaced took `queries : List …` as a
      parameter for exactly that reason, so the transformed protocol's *type* depended on the
      execution. Batched, the arity is `n + nOpen`, known statically. That is a typing problem, not
      a proof difficulty, and it is the strongest of the three.
-  2. **One application instead of an induction**: `Prover.append_run` once, at a fixed and known
+  2. **One application instead of an induction**: one append lemma, at a fixed and known
      suffix where it could also be discharged by hand, rather than the `seqCompose` induction over
      a list whose length is not known until run time.
   3. A **tighter error term**: `ε + δ + η` plus one batching term, not `ε + ∑ δᵢ + ∑ ηᵢ`.
@@ -93,9 +96,10 @@ import ArkLib.OracleReduction.Composition.Sequential.General
     and the verifier side of the commit phase.
   - `OracleReduction.BCSTransform` itself, assembling the two phases with `Reduction.append`.
   - The security statements. Completeness must take a `BCS.BatchingAdmissibility` hypothesis; it is
-    false without one for any norm-bounded scheme. Both it and soundness will rest on
-    `Prover.append_run`, which is still `sorry` upstream of this file -- see above, and note that
-    batching narrows that dependency rather than removing it.
+    false without one for any norm-bounded scheme. Completeness can now rest on
+    `Reduction.append_completeness`; soundness still waits on `Verifier.append_soundness`, which
+    is `sorry` upstream of this file -- see above, and note that batching narrows that dependency
+    rather than removing it.
 -/
 
 variable {n : ℕ}

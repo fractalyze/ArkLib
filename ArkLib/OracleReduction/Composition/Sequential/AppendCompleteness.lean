@@ -468,7 +468,7 @@ Two hypotheses beyond the original statement, both forced and both exhibited as 
   a state `R₁` has already written to.
 
 Both are free when the handler is stateless (`QueryImpl.IsStateless`), which is the case at
-`oSpec = []ₒ`; see `append_completeness_of_isStateless`. -/
+`oSpec = []ₒ`; see `append_completeness` below. -/
 theorem append_completeness'
     (hcomm : (pImplOf (pSpec₁ ++ₚ pSpec₂) impl).IsCommutative)
     (R₁ : Reduction oSpec Stmt₁ Wit₁ Stmt₂ Wit₂ pSpec₁)

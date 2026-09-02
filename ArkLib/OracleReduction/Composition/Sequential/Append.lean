@@ -631,7 +631,11 @@ open scoped NNReal
 /-! ### Admitted security-composition boundary
 
 The virtual-output execution semantics and the `append_toVerifier` commutation theorem above are
-proved. The generic completeness and security theorems below remain admitted because appended
+proved, and so is completeness -- the completeness theorems moved to `AppendCompleteness.lean`
+once repaired, since their unrestricted `StateT` statements were false (see
+`AppendCounterexample.lean`) and the hypotheses that fix them live there.
+
+The *soundness* theorems below remain admitted, for the reason the completeness one did: appended
 execution orders both prover phases before both verifier phases, while sequential execution
 interleaves each prover with its verifier. Their unrestricted `StateT` statements must therefore
 not be treated as established composition security. Standalone protocol theorems that do not invoke
