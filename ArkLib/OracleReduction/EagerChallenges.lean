@@ -87,4 +87,83 @@ def chalImplBelow {k : ℕ} (c : pSpec.ChalsBelow k) :
   simp only [chalImplBelow, challengeQueryImpl]
   exact dif_neg (Nat.not_lt_zero _)
 
+
 end ProtocolSpec
+
+namespace Prover
+
+open ProtocolSpec
+
+variable {ι : Type} {oSpec : OracleSpec ι} {S W S' W' : Type}
+  {n : ℕ} {pSpec : ProtocolSpec n}
+
+/-- `liftTarget` into the monad a handler already lands in is the identity. -/
+private lemma liftTarget_self {ι' : Type} {spec' : OracleSpec ι'}
+    (impl : QueryImpl spec' ProbComp) : QueryImpl.liftTarget ProbComp impl = impl := rfl
+
+/-- Simulating a base-spec computation under an added handler ignores the added half. -/
+private lemma simulateQ_addLift_base {ι' : Type} {spec' : OracleSpec ι'} {α : Type}
+    (implP : QueryImpl oSpec ProbComp) (g : QueryImpl spec' ProbComp)
+    (x : OracleComp oSpec α) :
+    simulateQ (implP.addLift g : QueryImpl (oSpec + spec') ProbComp)
+        (liftM x : OracleComp (oSpec + spec') α) = simulateQ implP x := by
+  rw [QueryImpl.addLift_def, liftTarget_self, liftTarget_self, ← liftComp_eq_liftM,
+    QueryImpl.simulateQ_add_liftComp_left]
+
+/-- Simulating an added-spec computation under an added handler ignores the base half. -/
+private lemma simulateQ_addLift_added {ι' : Type} {spec' : OracleSpec ι'} {α : Type}
+    (implP : QueryImpl oSpec ProbComp) (g : QueryImpl spec' ProbComp)
+    (y : OracleComp spec' α) :
+    simulateQ (implP.addLift g : QueryImpl (oSpec + spec') ProbComp)
+        (liftM y : OracleComp (oSpec + spec') α) = simulateQ g y := by
+  rw [QueryImpl.addLift_def, liftTarget_self, liftTarget_self, ← liftComp_eq_liftM,
+    QueryImpl.simulateQ_add_liftComp_right]
+
+/-- **A partial run reaches only the challenges of the rounds it has run.** Two challenge handlers
+agreeing on the rounds before `k` simulate `runToRound k` identically -- as computations, not just
+in distribution. This is what lets a round induction extend the pre-drawn vector without
+disturbing the prefix it has already accounted for. -/
+theorem simulateQ_runToRound_congr (implP : QueryImpl oSpec ProbComp)
+    (g₁ g₂ : QueryImpl ([pSpec.Challenge]ₒ'challengeOracleInterface) ProbComp)
+    (Q : Prover oSpec S W S' W' pSpec) (stmt : S) (wit : W) :
+    ∀ (k : ℕ) (_hk : k ≤ n),
+      (∀ q, (q.1.1 : ℕ) < k → g₁ q = g₂ q) →
+      simulateQ (implP.addLift g₁ : QueryImpl (oSpec + [pSpec.Challenge]ₒ) ProbComp)
+          (Q.runToRound ⟨k, by omega⟩ stmt wit)
+        = simulateQ (implP.addLift g₂ : QueryImpl (oSpec + [pSpec.Challenge]ₒ) ProbComp)
+          (Q.runToRound ⟨k, by omega⟩ stmt wit) := by
+  intro k
+  induction k with
+  | zero =>
+    intro _ _
+    rw [runToRound_mk_zero]
+    simp
+  | succ k ih =>
+    intro hk hg
+    rw [runToRound_mk_succ Q k (by omega)]
+    unfold Prover.processRound
+    refine Eq.trans (simulateQ_bind _ _ _) (Eq.trans ?_ (simulateQ_bind _ _ _).symm)
+    refine Eq.trans (bind_congr fun p => ?_)
+      (congrArg (fun A => A >>= _) (ih (by omega) fun q h => hg q (by omega)))
+    obtain ⟨transcript, state⟩ := p
+    dsimp only
+    split
+    · rename_i hDir
+      refine Eq.trans (simulateQ_bind _ _ _) (Eq.trans ?_ (simulateQ_bind _ _ _).symm)
+      refine Eq.trans (bind_congr fun _ => ?_)
+        (congrArg (fun A => A >>= _) (Eq.trans (simulateQ_addLift_base _ _ _)
+          (simulateQ_addLift_base _ _ _).symm))
+      refine Eq.trans (simulateQ_bind _ _ _) (Eq.trans ?_ (simulateQ_bind _ _ _).symm)
+      refine Eq.trans (bind_congr fun _ => ?_) (congrArg (fun A => A >>= _) ?_)
+      · rfl
+      · rw [ProtocolSpec.getChallenge, simulateQ_addLift_added, simulateQ_addLift_added]
+        exact (simulateQ_spec_query (impl := g₁) _).trans
+          ((hg ⟨⟨⟨k, by omega⟩, hDir⟩, ()⟩ (by simp)).trans
+            (simulateQ_spec_query (impl := g₂) _).symm)
+    · refine Eq.trans (simulateQ_bind _ _ _) (Eq.trans ?_ (simulateQ_bind _ _ _).symm)
+      refine Eq.trans (bind_congr fun _ => ?_)
+        (congrArg (fun A => A >>= _) (Eq.trans (simulateQ_addLift_base _ _ _)
+          (simulateQ_addLift_base _ _ _).symm))
+      rfl
+
+end Prover
