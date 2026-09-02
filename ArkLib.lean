@@ -404,6 +404,7 @@ import ArkLib.ToMathlib.Set.Finite
 import ArkLib.ToVCVio.EvalDist.CompletenessBound
 import ArkLib.ToVCVio.EvalDist.Defs.Support
 import ArkLib.ToVCVio.EvalDist.Instances.OptionT
+import ArkLib.ToVCVio.EvalDist.SoundnessBound
 import ArkLib.ToVCVio.OracleComp.Coercions.SubSpec
 import ArkLib.ToVCVio.OracleComp.EvalDist
 import ArkLib.ToVCVio.OracleComp.QueryTracking.LoggingOracle
