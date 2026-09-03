@@ -184,7 +184,7 @@ theorem fullOracleReduction_perfectCompleteness :
         ℓ ℓ' h_l (BinaryBasefoldAbstractOStmtIn κ L K β ℓ' 𝓡 ϑ h_ℓ_add_R_rate))
       (init := init)
       (impl := impl) :=
-  OracleReduction.append_perfectCompleteness
+  OracleReduction.append_perfectCompleteness (QueryImpl.isStateless_of_isEmpty impl)
     (R₁ := batchingCoreReduction κ L K β ℓ ℓ' 𝓡 ϑ h_ℓ_add_R_rate h_l )
     (R₂ := QueryPhase.queryOracleReduction K β γ_repetitions
       (h_ℓ_add_R_rate := h_ℓ_add_R_rate) (ϑ:=ϑ))
@@ -203,7 +203,7 @@ theorem fullOracleReduction_perfectCompleteness :
     (rel₂ := BinaryBasefold.finalSumcheckRelOut K β (ϑ:=ϑ) (h_ℓ_add_R_rate := h_ℓ_add_R_rate))
     (rel₃ := acceptRejectOracleRel)
     (h₁ := by
-      apply OracleReduction.append_perfectCompleteness
+      apply OracleReduction.append_perfectCompleteness (QueryImpl.isStateless_of_isEmpty impl)
         (rel₁ := BatchingPhase.batchingInputRelation κ L K (biniusProfile κ L K β)
           ℓ ℓ' h_l (BinaryBasefoldAbstractOStmtIn κ L K β ℓ' 𝓡 ϑ h_ℓ_add_R_rate))
         (rel₂ := RingSwitching.sumcheckRoundRelation κ L K (biniusProfile κ L K β)

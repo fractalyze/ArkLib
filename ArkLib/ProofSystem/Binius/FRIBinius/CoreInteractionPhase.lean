@@ -789,7 +789,7 @@ theorem coreInteractionOracleReduction_perfectCompleteness :
       (init := init)
       (impl := impl) := by
   unfold coreInteractionOracleReduction pSpecCoreInteraction
-  apply OracleReduction.append_perfectCompleteness
+  apply OracleReduction.append_perfectCompleteness (QueryImpl.isStateless_of_isEmpty impl)
   · -- Perfect completeness of sumcheckFoldOracleReduction
     exact sumcheckFoldOracleReduction_perfectCompleteness κ L K β ℓ ℓ' 𝓡 ϑ
       (h_ℓ_add_R_rate := h_ℓ_add_R_rate) h_l (init := init) (impl := impl)

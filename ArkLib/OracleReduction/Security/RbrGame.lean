@@ -331,6 +331,35 @@ theorem probEvent_optionT_simulateQ_addLift_prefix_getChallenge_bind_le
   obtain ⟨t, _, htz⟩ := hz
   exact ⟨t, z, htz, hE⟩
 
+/-- `probEvent_optionT_simulateQ_addLift_prefix_getChallenge_bind_le` with the oracle state
+sampled from `init` rather than fixed -- the form a top-level game bound is stated in, and the
+prefix-extended counterpart of
+`probEvent_optionT_simulateQ_addLift_getChallenge_bind_some_le`.
+
+This is the shape a knowledge-soundness game takes once the prover's own queries for a round run
+before that round's challenge draw, which is the order `Prover.processRound` uses; see its
+docstring for why. -/
+theorem probEvent_optionT_simulateQ_addLift_prefix_getChallenge_bind_init_le
+    {P T β : Type}
+    (init : ProbComp σ) (impl : QueryImpl oSpec (StateT σ ProbComp))
+    (oa : OracleComp (oSpec + [pSpec.Challenge]ₒ) (Option β)) (i : pSpec.ChallengeIdx)
+    (mid : OracleComp (oSpec + [pSpec.Challenge]ₒ) P)
+    (tail : P → pSpec.Challenge i → OracleComp (oSpec + [pSpec.Challenge]ₒ) T)
+    (f : P → pSpec.Challenge i → T → Option β) (E : β → Prop) {ε : ℝ≥0∞}
+    (hoa : oa = do
+      let pre ← mid
+      let c ← liftComp (pSpec.getChallenge i) (oSpec + [pSpec.Challenge]ₒ)
+      (f pre c) <$> tail pre c)
+    (h : ∀ pre : P,
+      Pr[ fun c ↦ ∃ t b, f pre c t = some b ∧ E b | $ᵗ (pSpec.Challenge i)] ≤ ε) :
+    Pr[ E | OptionT.mk (do
+      (simulateQ (impl.addLift challengeQueryImpl : QueryImpl _ (StateT σ ProbComp))
+        oa).run' (← init))] ≤ ε := by
+  rw [OptionT.mk_bind]
+  refine probEvent_bind_le_of_forall_le fun s _ ↦ ?_
+  exact probEvent_optionT_simulateQ_addLift_prefix_getChallenge_bind_le
+    s impl oa i mid tail f E hoa h
+
 /-- The two algebraically-equal spellings of a convex combination `λ·1 + (1−λ)·ε` in `ℝ≥0∞`,
 for `λ, ε ≤ 1`. Used to turn the `λ + (1−λ)·ε` shape produced by
 `probEvent_bind_le_probEvent_convex` into the monotone-in-`λ` shape `ε + λ·(1−ε)`. -/
@@ -397,5 +426,41 @@ theorem probEvent_optionT_simulateQ_addLift_getChallenge_first_bind_le_convex
   rw [enn_convex_symm _ _ probEvent_le_one hε₂]
   exact add_le_add le_rfl (mul_le_mul' (le_trans (le_of_eq (OptionT.probEvent_liftM _ _)) h₁)
     le_rfl)
+
+
+/-- `probEvent_optionT_simulateQ_addLift_getChallenge_first_bind_le_convex` with an arbitrary
+(adversarial) prefix `mid` running before the challenge draw.
+
+This is the shape a game takes once the prover's own queries for a round run before that round's
+challenge is drawn, which is the order `Prover.processRound` uses; see its docstring for why. The
+prefix is peeled with `probEvent_bind_le_of_forall_le` -- the per-challenge bound `h₂` is uniform
+in the prefix's outcome, so nothing is lost. -/
+theorem probEvent_optionT_simulateQ_addLift_prefix_getChallenge_first_bind_le_convex
+    {P β : Type}
+    (init : ProbComp σ) (impl : QueryImpl oSpec (StateT σ ProbComp))
+    (oa : OracleComp (oSpec + [pSpec.Challenge]ₒ) (Option β)) (i : pSpec.ChallengeIdx)
+    (mid : OracleComp (oSpec + [pSpec.Challenge]ₒ) P)
+    (tail : P → pSpec.Challenge i → OracleComp (oSpec + [pSpec.Challenge]ₒ) (Option β))
+    (E : β → Prop) (p : pSpec.Challenge i → Prop) {ε₁ ε₂ : ℝ≥0∞}
+    (hε₂ : ε₂ ≤ 1)
+    (hoa : oa = do
+      let pre ← mid
+      let c ← liftComp (pSpec.getChallenge i) (oSpec + [pSpec.Challenge]ₒ)
+      tail pre c)
+    (h₁ : Pr[ p | $ᵗ (pSpec.Challenge i)] ≤ ε₁)
+    (h₂ : ∀ (pre : P) (c : pSpec.Challenge i), ¬ p c → ∀ s : σ,
+      Pr[ E | OptionT.mk
+        ((simulateQ (impl.addLift challengeQueryImpl : QueryImpl _ (StateT σ ProbComp))
+          (tail pre c)).run' s)] ≤ ε₂) :
+    Pr[ E | OptionT.mk (do
+      (simulateQ (impl.addLift challengeQueryImpl : QueryImpl _ (StateT σ ProbComp))
+        oa).run' (← init))] ≤ ε₂ + ε₁ * (1 - ε₂) := by
+  subst hoa
+  rw [OptionT.mk_bind]
+  refine probEvent_bind_le_of_forall_le fun s _ ↦ ?_
+  rw [simulateQ_bind, StateT.run'_bind', OptionT.mk_bind]
+  refine probEvent_bind_le_of_forall_le fun x _ ↦ ?_
+  simpa using probEvent_optionT_simulateQ_addLift_getChallenge_first_bind_le_convex
+    (pure x.2) impl _ i (tail x.1) E p hε₂ rfl h₁ (fun c hc s' ↦ h₂ x.1 c hc s')
 
 end ProtocolSpec

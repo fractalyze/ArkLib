@@ -79,6 +79,24 @@ namespace Prover
 /--
 Prover's function for processing the next round, given the current result of the previous round, and
 a function for getting the challenge.
+
+**On the order of effects in a challenge round.** The prover's own oracle queries run *first*, and
+the challenge is drawn after: `receiveChallenge` is executed to obtain the state update, and only
+then is `getChallenge` called and the update applied.
+
+This is forced by `receiveChallenge`'s type, `PrvState → OracleComp oSpec (Challenge → PrvState')`.
+Returning a *function* of the challenge is precisely the statement that the round's oracle queries
+do not depend on the challenge; if they were allowed to, the type would be
+`Challenge → OracleComp oSpec PrvState'`. Running the queries before the draw is the reading that
+matches the type.
+
+Drawing the challenge first would also break sequential composition. `Prover.append` has to run
+`P₁.output` somewhere, and at the boundary round `m` the only hook available is `P₂`'s first
+`receiveChallenge`/`sendMessage`. With the challenge drawn first, the appended prover would query
+the challenge oracle *before* running `P₁.output`, whereas running `P₁` and then `P₂` runs
+`P₁.output` first -- and `OracleComp` is a free monad, so those are different computations.
+`Prover.append_run` is false under that order; see the counterexample in
+`Composition/Sequential/AppendProver.lean`.
 -/
 @[inline, specialize]
 def processRound (j : Fin n)
@@ -90,9 +108,9 @@ def processRound (j : Fin n)
   let ⟨transcript, state⟩ ← currentResult
   match hDir : pSpec.dir j with
   | .V_to_P => do
+    let update ← prover.receiveChallenge ⟨j, hDir⟩ state
     let challenge ← pSpec.getChallenge ⟨j, hDir⟩
-    letI newState := (← prover.receiveChallenge ⟨j, hDir⟩ state) challenge
-    return ⟨transcript.concat challenge, newState⟩
+    return ⟨transcript.concat challenge, update challenge⟩
   | .P_to_V => do
     let ⟨msg, newState⟩ ← prover.sendMessage ⟨j, hDir⟩ state
     return ⟨transcript.concat msg, newState⟩
@@ -157,6 +175,61 @@ lemma runWithLog_discard_log_eq_run (stmt : StmtIn) (wit : WitIn)
     (prover : Prover oSpec StmtIn WitIn StmtOut WitOut pSpec) :
       Prod.fst <$> prover.runWithLog stmt wit = prover.run stmt wit := by
   simp [runWithLog]
+
+/-! ### Unfolding a partial run
+
+`Prover.runToRound` is a `Fin.induction`, so `Fin.induction_zero` / `Fin.induction_succ` fire on
+`0` and `Fin.succ j` -- while a round induction over `ℕ` hands you `⟨v, _⟩` and `⟨v + 1, _⟩`. The
+two are definitionally equal, so `show` bridges them; `rw` cannot, because the motive is not type
+correct (transcript and state both depend on the index). -/
+
+/-- Unfold `runToRound` one round at a raw `Fin.mk` successor index.
+
+`Fin.induction_succ` only fires on an index of the form `Fin.succ j`, and a round induction hands
+you `⟨v + 1, _⟩` instead. The two are definitionally equal, so `show` bridges them -- but `rw`
+cannot, because the motive is not type correct. -/
+theorem runToRound_mk_succ {N : ℕ} {pSpec : ProtocolSpec N} {S W S' W' : Type}
+    (P : Prover oSpec S W S' W' pSpec) (v : ℕ) (hv : v < N) (stmt : S) (wit : W) :
+    P.runToRound ⟨v + 1, by omega⟩ stmt wit
+      = Prover.processRound ⟨v, hv⟩ P (P.runToRound ⟨v, by omega⟩ stmt wit) := by
+  show P.runToRound (Fin.succ ⟨v, hv⟩) stmt wit = _
+  simp only [Prover.runToRound, Fin.induction_succ]
+  rfl
+
+theorem runToRound_mk_zero {N : ℕ} {pSpec : ProtocolSpec N} {S W S' W' : Type}
+    (P : Prover oSpec S W S' W' pSpec) (h : 0 < N + 1) (stmt : S) (wit : W) :
+    P.runToRound ⟨0, h⟩ stmt wit = pure (default, P.input (stmt, wit)) := by
+  show P.runToRound 0 stmt wit = _
+  simp only [Prover.runToRound, Fin.induction_zero]
+  rfl
+
+/-- `processRound` distributes over a bind in its input: it consumes the input with a single
+`>>=`, so this is `bind_assoc`. The right-region induction needs it to reach past the `P₁` run and
+the `P₁.output`/`P₂.input` handover that sit in front of `P₂`'s partial run. -/
+theorem processRound_bind {N : ℕ} {pSpec : ProtocolSpec N} {S W S' W' α : Type}
+    (j : Fin N) (P : Prover oSpec S W S' W' pSpec)
+    (A : OracleComp (oSpec + [pSpec.Challenge]ₒ) α)
+    (f : α → OracleComp (oSpec + [pSpec.Challenge]ₒ)
+          (pSpec.Transcript j.castSucc × P.PrvState j.castSucc)) :
+    Prover.processRound j P (A >>= f) = A >>= fun a => Prover.processRound j P (f a) := by
+  unfold Prover.processRound
+  rw [bind_assoc]
+
+/-- Unfold `runToRound` at index `1`. Like `runToRound_mk_zero` / `runToRound_mk_succ` this is a
+`show`-based defeq bridge: `Fin.induction_succ` fires on `Fin.succ ⟨0, _⟩` and a literal `1` is not
+syntactically that. -/
+theorem runToRound_mk_one {N : ℕ} {pSpec : ProtocolSpec N} {S W S' W' : Type}
+    (P : Prover oSpec S W S' W' pSpec) (hN : 0 < N) (stmt : S) (wit : W) :
+    P.runToRound ⟨1, by omega⟩ stmt wit = Prover.processRound ⟨0, hN⟩ P
+      (pure ((default : pSpec.Transcript 0), P.input (stmt, wit))) := by
+  change P.runToRound (Fin.succ ⟨0, hN⟩) stmt wit = _
+  simp only [Prover.runToRound, Fin.induction_succ]
+  rfl
+
+/-- `Fin.last N` written as a raw `Fin.mk`, which is the index the round inductions produce. -/
+theorem runToRound_last {N : ℕ} {pSpec : ProtocolSpec N} {S W S' W' : Type}
+    (P : Prover oSpec S W S' W' pSpec) (stmt : S) (wit : W) :
+    P.runToRound (Fin.last N) stmt wit = P.runToRound ⟨N, by omega⟩ stmt wit := rfl
 
 end Prover
 
@@ -482,21 +555,24 @@ theorem Prover.runToRound_succ (i : Fin n)
   Fin.induction_succ _ _ _
 
 /-- **Per-direction unfold of `processRound` (verifier-to-prover round).** When round `j` is a
-challenge round (`pSpec.dir j = .V_to_P`), processing it reads the previous result, draws the
-challenge, feeds it to `receiveChallenge`, and appends it to the transcript. This resolves the
-internal dependent `match hDir : pSpec.dir j` *once, at the framework level*, so concrete-protocol
-proofs no longer re-derive the direction split (and its `⟨j, hDir⟩` index proofs) by hand. Pairs
-with `processRound_of_dir_eq_P_to_V`, and with the `runToRound` unfolding lemmas above, to give a
-clean, monad-law-friendly challenge-first normal form for any `Prover.run`. -/
+challenge round (`pSpec.dir j = .V_to_P`), processing it reads the previous result, runs
+`receiveChallenge` to obtain the state update, draws the challenge, and appends it to the
+transcript. This resolves the internal dependent `match hDir : pSpec.dir j` *once, at the framework
+level*, so concrete-protocol proofs no longer re-derive the direction split (and its `⟨j, hDir⟩`
+index proofs) by hand. Pairs with `processRound_of_dir_eq_P_to_V`, and with the `runToRound`
+unfolding lemmas above, to give a clean, monad-law-friendly normal form for any `Prover.run`.
+
+Note the order: the prover's oracle queries for this round all precede the challenge draw. See
+`Prover.processRound` for why. -/
 theorem Prover.processRound_of_dir_eq_V_to_P (j : Fin n) (hDir : pSpec.dir j = .V_to_P)
     (prover : Prover oSpec StmtIn WitIn StmtOut WitOut pSpec)
     (currentResult : OracleComp (oSpec + [pSpec.Challenge]ₒ)
       (pSpec.Transcript j.castSucc × prover.PrvState j.castSucc)) :
     prover.processRound j currentResult = (do
       let ⟨transcript, state⟩ ← currentResult
+      let update ← prover.receiveChallenge ⟨j, hDir⟩ state
       let challenge ← pSpec.getChallenge ⟨j, hDir⟩
-      let newState := (← prover.receiveChallenge ⟨j, hDir⟩ state) challenge
-      return ⟨transcript.concat challenge, newState⟩) := by
+      return ⟨transcript.concat challenge, update challenge⟩) := by
   simp only [Prover.processRound]
   split <;> rename_i h
   · rfl
@@ -597,17 +673,17 @@ theorem Prover.runToRound_one_of_verifier_first [VerifierOnly pSpec] (stmt : Stm
     (prover : Prover oSpec StmtIn WitIn StmtOut WitOut pSpec) :
       prover.runToRound 1 stmt wit = (do
         let state := prover.input (stmt, wit)
+        let update ← liftComp (prover.receiveChallenge ⟨0, by simp⟩ state) _
         let challenge ← liftComp (pSpec.getChallenge ⟨0, by simp⟩) _
-        letI newState := (← liftComp (prover.receiveChallenge ⟨0, by simp⟩ state) _) challenge
-        return (fun i => match i with | ⟨0, _⟩ => challenge, newState)) := by
+        return (fun i => match i with | ⟨0, _⟩ => challenge, update challenge)) := by
   simp [Prover.runToRound, Prover.processRound]
   have : pSpec.dir 0 = .V_to_P := by simp
   split <;> rename_i hDir
   · -- V_to_P case: this is what we want
     congr 1
-    funext challenge
-    congr 1
     funext f
+    congr 1
+    funext challenge
     simp only [default, Transcript.concat, Prod.mk.injEq]
     constructor
     · funext ⟨i, hi⟩
@@ -624,8 +700,8 @@ theorem Prover.run_of_verifier_first [VerifierOnly pSpec] (stmt : StmtIn) (wit :
     (prover : Prover oSpec StmtIn WitIn StmtOut WitOut pSpec) :
       prover.run stmt wit = (do
         let state := prover.input (stmt, wit)
-        let challenge ← liftComp (pSpec.getChallenge ⟨0, by simp⟩) _
         let f ← liftComp (prover.receiveChallenge ⟨0, by simp⟩ state) _
+        let challenge ← liftComp (pSpec.getChallenge ⟨0, by simp⟩) _
         let ctxOut ← prover.output (f challenge)
         return ((fun i => match i with | ⟨0, _⟩ => challenge), ctxOut)) := by
   simp [Prover.run]; rfl

@@ -66,6 +66,228 @@ theorem knowledgeSoundness_implies_soundness
   --     PMF.bind_const, PMF.pure_apply, eq_iff_iff, iff_false, not_true_eq_false, ↓reduceIte,
   --     zero_add, ℝ≥0.coe_lt_one_iff, hLt]
 
+/-- The challenge rounds strictly before round `m`. -/
+def challengesBefore (m : Fin (n + 1)) : Finset pSpec.ChallengeIdx :=
+  {i : pSpec.ChallengeIdx | (i.1 : ℕ) < (m : ℕ)}
+
+omit [∀ i, SampleableType (pSpec.Challenge i)] in
+theorem mem_challengesBefore {m : Fin (n + 1)} {i : pSpec.ChallengeIdx} :
+    i ∈ challengesBefore (pSpec := pSpec) m ↔ (i.1 : ℕ) < (m : ℕ) := by
+  simp [challengesBefore]
+
+omit [∀ i, SampleableType (pSpec.Challenge i)] in
+@[simp] theorem challengesBefore_zero :
+    challengesBefore (pSpec := pSpec) 0 = ∅ := by
+  simp [challengesBefore]
+
+omit [∀ i, SampleableType (pSpec.Challenge i)] in
+/-- A prover-to-verifier round contributes no challenge index. -/
+theorem challengesBefore_succ_of_dir_eq_P_to_V {m : Fin n} (hDir : pSpec.dir m = .P_to_V) :
+    challengesBefore (pSpec := pSpec) m.succ = challengesBefore (pSpec := pSpec) m.castSucc := by
+  ext i
+  simp only [mem_challengesBefore, Fin.val_succ, Fin.val_castSucc]
+  constructor
+  · intro h
+    rcases Nat.lt_succ_iff_lt_or_eq.mp h with h | h
+    · exact h
+    · have hi : i.1 = m := Fin.ext h
+      exact absurd (hi ▸ i.2) (by rw [hDir]; decide)
+  · exact fun h => Nat.lt_succ_of_lt h
+
+omit [∀ i, SampleableType (pSpec.Challenge i)] in
+/-- A verifier-to-prover round contributes exactly its own challenge index. -/
+theorem challengesBefore_succ_of_dir_eq_V_to_P {m : Fin n} (hDir : pSpec.dir m = .V_to_P) :
+    challengesBefore (pSpec := pSpec) m.succ
+      = insert ⟨m, hDir⟩ (challengesBefore (pSpec := pSpec) m.castSucc) := by
+  ext i
+  simp only [Finset.mem_insert, mem_challengesBefore, Fin.val_succ, Fin.val_castSucc]
+  constructor
+  · intro h
+    rcases Nat.lt_succ_iff_lt_or_eq.mp h with h | h
+    · exact Or.inr h
+    · exact Or.inl (Subtype.ext (Fin.ext h))
+  · rintro (rfl | h)
+    · exact Nat.lt_succ_self _
+    · exact Nat.lt_succ_of_lt h
+
+omit [∀ i, SampleableType (pSpec.Challenge i)] in
+@[simp] theorem challengesBefore_last :
+    challengesBefore (pSpec := pSpec) (Fin.last n) = Finset.univ := by
+  ext i
+  simp [mem_challengesBefore, i.1.isLt]
+
+omit [∀ i, SampleableType (pSpec.Challenge i)] in
+theorem notMem_challengesBefore_castSucc {m : Fin n} (hDir : pSpec.dir m = .V_to_P) :
+    (⟨m, hDir⟩ : pSpec.ChallengeIdx) ∉ challengesBefore (pSpec := pSpec) m.castSucc := by
+  simp [mem_challengesBefore]
+
+/-- `ProtocolSpec.simulateQ_addLift_challengeQueryImpl_getChallenge` in the `liftM` spelling that
+`Prover.processRound` actually produces: the coercion of `getChallenge` into the combined spec
+elaborates through `MonadLift`, not through a literal `liftComp`. -/
+theorem simulateQ_addLift_challengeQueryImpl_liftM_getChallenge (i : pSpec.ChallengeIdx) :
+    simulateQ (impl.addLift challengeQueryImpl : QueryImpl _ (StateT σ ProbComp))
+      (liftM (pSpec.getChallenge i) : OracleComp (oSpec + [pSpec.Challenge]ₒ) _)
+      = (liftM ($ᵗ (pSpec.Challenge i)) : StateT σ ProbComp (pSpec.Challenge i)) :=
+  ProtocolSpec.simulateQ_addLift_challengeQueryImpl_getChallenge impl i
+
+/-- Along the prover's run, a state function that starts false can only turn true at a challenge
+round, so its probability after round `m` is at most the sum of the round-by-round errors of the
+challenge rounds before `m`.
+
+The hypothesis is the worst-case-per-prefix bad-transition bound of `rbrSoundnessWorstCase`,
+evaluated at the fixed input statement: for every challenge index and every transcript prefix, a
+fresh uniform challenge flips the state function with probability at most the round's error. That
+per-prefix shape is what a union bound over rounds needs — the averaged shape of `rbrSoundness`
+bounds a mixture and does not by itself bound each prefix.
+
+The initial oracle state `s` is a parameter rather than a sample from `init`: the induction has to
+hand the state reached after round `m` to round `m + 1`, which a computation whose state has
+already been discarded cannot do.
+
+`toFun_empty` starts the state function false, `toFun_next` forbids a flip across a prover message,
+and a flip across a challenge is exactly the bounded bad event. -/
+theorem probEvent_stateFunction_runToRound_le
+    {langIn : Set StmtIn} {langOut : Set StmtOut}
+    {verifier : Verifier oSpec StmtIn StmtOut pSpec}
+    {rbrSoundnessError : pSpec.ChallengeIdx → ℝ≥0}
+    (stF : verifier.StateFunction init impl langIn langOut)
+    {WitIn' WitOut' : Type} (witIn : WitIn')
+    (prover : Prover oSpec StmtIn WitIn' StmtOut WitOut' pSpec)
+    (stmtIn : StmtIn) (hStmtIn : stmtIn ∉ langIn)
+    (hRbr : ∀ (i : pSpec.ChallengeIdx) (tr : pSpec.Transcript i.1.castSucc),
+      Pr[ fun c => ¬ stF.toFun i.1.castSucc stmtIn tr ∧
+            stF.toFun i.1.succ stmtIn (tr.concat c)
+        | ($ᵗ (pSpec.Challenge i))] ≤ (rbrSoundnessError i : ENNReal))
+    (m : Fin (n + 1)) (s : σ) :
+    Pr[ fun x => stF.toFun m stmtIn x.1.1
+      | (simulateQ (impl.addLift challengeQueryImpl : QueryImpl _ (StateT σ ProbComp))
+          (prover.runToRound m stmtIn witIn)).run s]
+      ≤ ((∑ i ∈ challengesBefore (pSpec := pSpec) m, rbrSoundnessError i : ℝ≥0) : ENNReal) := by
+  induction m using Fin.induction with
+  | zero =>
+    have hEmpty : ¬ stF.toFun 0 stmtIn default := fun h =>
+      hStmtIn ((stF.toFun_empty stmtIn).mpr h)
+    rw [challengesBefore_zero, show prover.runToRound 0 stmtIn witIn
+      = pure ⟨default, prover.input (stmtIn, witIn)⟩ from rfl]
+    simp only [Finset.sum_empty, ENNReal.coe_zero, nonpos_iff_eq_zero]
+    refine probEvent_eq_zero fun x hx hp => ?_
+    obtain rfl : x = ((default, prover.input (stmtIn, witIn)), s) := by simpa using hx
+    exact hEmpty hp
+  | succ m ih =>
+    rw [Prover.runToRound_succ]
+    cases hDir : pSpec.dir m with
+    | P_to_V =>
+      rw [Prover.processRound_of_dir_eq_P_to_V m hDir,
+        challengesBefore_succ_of_dir_eq_P_to_V hDir, simulateQ_bind, StateT.run_bind]
+      refine le_trans (probEvent_bind_le_probEvent
+        (p := fun x => stF.toFun m.castSucc stmtIn x.1.1) ?_) ih
+      rintro ⟨⟨tr, st⟩, s'⟩ - hp
+      simp only [bind_pure_comp, simulateQ_map, StateT.run_map, probEvent_map]
+      refine probEvent_eq_zero fun z _ hq => ?_
+      exact stF.toFun_next m hDir stmtIn tr hp z.1.1 hq
+    | V_to_P =>
+      rw [Prover.processRound_of_dir_eq_V_to_P m hDir,
+        challengesBefore_succ_of_dir_eq_V_to_P hDir,
+        Finset.sum_insert (notMem_challengesBefore_castSucc hDir), simulateQ_bind,
+        StateT.run_bind]
+      refine le_trans (probEvent_bind_le_probEvent_add
+        (p := fun x => stF.toFun m.castSucc stmtIn x.1.1)
+        (ε := (rbrSoundnessError ⟨m, hDir⟩ : ENNReal)) ?_) ?_
+      · rintro ⟨⟨tr, st⟩, s'⟩ - hp
+        -- The prover's own queries for this round run *before* the challenge is drawn (see
+        -- `Prover.processRound`), so peel them off first. They do not touch the transcript, and
+        -- the round bound below is uniform in their outcome, so nothing is lost.
+        rw [simulateQ_bind, StateT.run_bind]
+        refine probEvent_bind_le_of_forall_le ?_
+        rintro ⟨update, s''⟩ -
+        rw [simulateQ_bind, simulateQ_addLift_challengeQueryImpl_liftM_getChallenge,
+          StateT.run_bind]
+        simp only [StateT.run_monadLift, monadLift_self, bind_assoc, pure_bind]
+        refine le_trans (probEvent_bind_le_probEvent
+          (p := fun c => ¬ stF.toFun m.castSucc stmtIn tr ∧
+            stF.toFun m.succ stmtIn (tr.concat c)) ?_) (hRbr ⟨m, hDir⟩ tr)
+        intro c _ hpc
+        simp only [simulateQ_pure, StateT.run_pure]
+        refine probEvent_eq_zero fun z hz hq => ?_
+        obtain rfl : z = ((Transcript.concat c tr, update c), s'') := by simpa using hz
+        exact hpc ⟨hp, hq⟩
+      · rw [ENNReal.coe_add, add_comm ((rbrSoundnessError ⟨m, hDir⟩ : ℝ≥0) : ENNReal)]
+        exact add_le_add ih le_rfl
+
+/-- The full-run specialization of `probEvent_stateFunction_runToRound_le`: after the last round,
+the state function holds with probability at most the total round-by-round error. This is the
+half of `rbrSoundness_implies_soundness` that the round structure alone gives; turning it into a
+soundness bound additionally needs `StateFunction.toFun_full`, which samples the verifier's oracle
+state afresh from `init` instead of inheriting the state the prover left behind. -/
+theorem probEvent_stateFunction_run_le
+    {langIn : Set StmtIn} {langOut : Set StmtOut}
+    {verifier : Verifier oSpec StmtIn StmtOut pSpec}
+    {rbrSoundnessError : pSpec.ChallengeIdx → ℝ≥0}
+    (stF : verifier.StateFunction init impl langIn langOut)
+    {WitIn' WitOut' : Type} (witIn : WitIn')
+    (prover : Prover oSpec StmtIn WitIn' StmtOut WitOut' pSpec)
+    (stmtIn : StmtIn) (hStmtIn : stmtIn ∉ langIn)
+    (hRbr : ∀ (i : pSpec.ChallengeIdx) (tr : pSpec.Transcript i.1.castSucc),
+      Pr[ fun c => ¬ stF.toFun i.1.castSucc stmtIn tr ∧
+            stF.toFun i.1.succ stmtIn (tr.concat c)
+        | ($ᵗ (pSpec.Challenge i))] ≤ (rbrSoundnessError i : ENNReal))
+    (s : σ) :
+    Pr[ fun x => stF.toFun (Fin.last n) stmtIn x.1.1
+      | (simulateQ (impl.addLift challengeQueryImpl : QueryImpl _ (StateT σ ProbComp))
+          (prover.runToRound (Fin.last n) stmtIn witIn)).run s]
+      ≤ ((∑ i, rbrSoundnessError i : ℝ≥0) : ENNReal) := by
+  have := probEvent_stateFunction_runToRound_le init impl stF witIn prover stmtIn hStmtIn hRbr
+    (Fin.last n) s
+  rwa [challengesBefore_last] at this
+
+/-- `probEvent_stateFunction_run_le` averaged over the initial oracle state, the shape the
+soundness game presents. -/
+theorem probEvent_stateFunction_run_le_of_init
+    {langIn : Set StmtIn} {langOut : Set StmtOut}
+    {verifier : Verifier oSpec StmtIn StmtOut pSpec}
+    {rbrSoundnessError : pSpec.ChallengeIdx → ℝ≥0}
+    (stF : verifier.StateFunction init impl langIn langOut)
+    {WitIn' WitOut' : Type} (witIn : WitIn')
+    (prover : Prover oSpec StmtIn WitIn' StmtOut WitOut' pSpec)
+    (stmtIn : StmtIn) (hStmtIn : stmtIn ∉ langIn)
+    (hRbr : ∀ (i : pSpec.ChallengeIdx) (tr : pSpec.Transcript i.1.castSucc),
+      Pr[ fun c => ¬ stF.toFun i.1.castSucc stmtIn tr ∧
+            stF.toFun i.1.succ stmtIn (tr.concat c)
+        | ($ᵗ (pSpec.Challenge i))] ≤ (rbrSoundnessError i : ENNReal)) :
+    Pr[ fun x => stF.toFun (Fin.last n) stmtIn x.1.1
+      | do
+        let s ← init
+        (simulateQ (impl.addLift challengeQueryImpl : QueryImpl _ (StateT σ ProbComp))
+          (prover.runToRound (Fin.last n) stmtIn witIn)).run s]
+      ≤ ((∑ i, rbrSoundnessError i : ℝ≥0) : ENNReal) :=
+  probEvent_bind_le_of_forall_le fun s _ =>
+    probEvent_stateFunction_run_le init impl stF witIn prover stmtIn hStmtIn hRbr s
+
+/-- `probEvent_stateFunction_run_le` packaged against `rbrSoundnessWorstCase`: its state function
+witnesses that no prover, from any initial oracle state, reaches a full transcript on which the
+state function holds with probability more than the total round-by-round error.
+
+What is still missing for `rbrSoundness_implies_soundness` is the last hop. `toFun_full` bounds the
+verifier on a fresh oracle state drawn from `init`, whereas the soundness game hands the verifier
+the state the prover left behind; for a stateful `impl` those are different distributions. -/
+theorem rbrSoundnessWorstCase_probEvent_run_le
+    (langIn : Set StmtIn) (langOut : Set StmtOut)
+    (verifier : Verifier oSpec StmtIn StmtOut pSpec)
+    (rbrSoundnessError : pSpec.ChallengeIdx → ℝ≥0)
+    (h : rbrSoundnessWorstCase init impl langIn langOut verifier rbrSoundnessError) :
+    ∃ stF : verifier.StateFunction init impl langIn langOut,
+      ∀ (stmtIn : StmtIn), stmtIn ∉ langIn →
+      ∀ (WitIn' WitOut' : Type) (witIn : WitIn')
+        (prover : Prover oSpec StmtIn WitIn' StmtOut WitOut' pSpec) (s : σ),
+        Pr[ fun x => stF.toFun (Fin.last n) stmtIn x.1.1
+          | (simulateQ (impl.addLift challengeQueryImpl : QueryImpl _ (StateT σ ProbComp))
+              (prover.runToRound (Fin.last n) stmtIn witIn)).run s]
+          ≤ ((∑ i, rbrSoundnessError i : ℝ≥0) : ENNReal) := by
+  obtain ⟨stF, hstF⟩ := h
+  exact ⟨stF, fun stmtIn hStmtIn _ _ witIn prover s =>
+    probEvent_stateFunction_run_le init impl stF witIn prover stmtIn hStmtIn
+      (fun i tr => hstF stmtIn hStmtIn i tr) s⟩
+
 /-- Round-by-round soundness with error `rbrSoundnessError` implies soundness with error
 `∑ i, rbrSoundnessError i`, where the sum is over all rounds `i`. -/
 theorem rbrSoundness_implies_soundness (langIn : Set StmtIn) (langOut : Set StmtOut)

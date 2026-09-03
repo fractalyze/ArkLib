@@ -309,22 +309,22 @@ open NNReal
 variable [SampleableType R]
   {σ : Type} {init : ProbComp σ} {impl : QueryImpl oSpec (StateT σ ProbComp)}
 
-theorem oracleReduction_perfectCompleteness :
+theorem oracleReduction_perfectCompleteness (hst : impl.IsStateless) :
     (oracleReduction R deg oSpec).perfectCompleteness init impl
       (inputRelation R deg D) (outputRelation R deg) := by
   simp [oracleReduction]
-  refine OracleReduction.append_perfectCompleteness
+  refine OracleReduction.append_perfectCompleteness hst
     (rel₂ := relationAfterRandomQuery R deg)
     ((((oracleReduction.sendClaim R deg oSpec).append
         (oracleReduction.checkClaim R deg oSpec)).append
         (oracleReduction.randomQuery R deg oSpec)))
     (oracleReduction.reduceClaim R deg oSpec) ?_ ?_
-  · refine OracleReduction.append_perfectCompleteness
+  · refine OracleReduction.append_perfectCompleteness hst
       (rel₂ := relationAfterCheckClaim R deg)
       ((oracleReduction.sendClaim R deg oSpec).append
         (oracleReduction.checkClaim R deg oSpec))
       (oracleReduction.randomQuery R deg oSpec) ?_ ?_
-    · refine OracleReduction.append_perfectCompleteness
+    · refine OracleReduction.append_perfectCompleteness hst
         (rel₂ := relationAfterSendClaim R deg D)
         (oracleReduction.sendClaim R deg oSpec)
         (oracleReduction.checkClaim R deg oSpec) ?_ ?_

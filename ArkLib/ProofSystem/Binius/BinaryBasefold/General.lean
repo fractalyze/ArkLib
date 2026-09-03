@@ -110,7 +110,7 @@ theorem fullOracleReduction_perfectCompleteness :
         (h_ℓ_add_R_rate := h_ℓ_add_R_rate) 0)
       (init := init)
       (impl := impl) := by
-  apply OracleReduction.append_perfectCompleteness
+  apply OracleReduction.append_perfectCompleteness (QueryImpl.isStateless_of_isEmpty impl)
     (R₁ := CoreInteraction.coreInteractionOracleReduction 𝔽q β
       (h_ℓ_add_R_rate := h_ℓ_add_R_rate) (ϑ:=ϑ) )
     (R₂ := QueryPhase.queryOracleReduction 𝔽q β γ_repetitions

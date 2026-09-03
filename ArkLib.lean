@@ -259,8 +259,19 @@ import ArkLib.OracleReduction.Basic
 import ArkLib.OracleReduction.Cast
 import ArkLib.OracleReduction.Composition.Parallel.Basic
 import ArkLib.OracleReduction.Composition.Sequential.Append
+import ArkLib.OracleReduction.Composition.Sequential.AppendCompleteness
+import ArkLib.OracleReduction.Composition.Sequential.AppendCounterexample
+import ArkLib.OracleReduction.Composition.Sequential.AppendKnowledgeSoundness
+import ArkLib.OracleReduction.Composition.Sequential.AppendProver
+import ArkLib.OracleReduction.Composition.Sequential.AppendRbrKnowledgeSoundness
+import ArkLib.OracleReduction.Composition.Sequential.AppendRbrSoundness
+import ArkLib.OracleReduction.Composition.Sequential.AppendSoundness
+import ArkLib.OracleReduction.Composition.Sequential.AppendStateFunction
 import ArkLib.OracleReduction.Composition.Sequential.General
+import ArkLib.OracleReduction.Composition.Sequential.HandlerCommutativity
 import ArkLib.OracleReduction.Composition.Sequential.IsPure
+import ArkLib.OracleReduction.Composition.Sequential.SplitProver
+import ArkLib.OracleReduction.EagerChallenges
 import ArkLib.OracleReduction.Equiv
 import ArkLib.OracleReduction.Execution
 import ArkLib.OracleReduction.FiatShamir.Basic
@@ -283,6 +294,7 @@ import ArkLib.OracleReduction.Prelude
 import ArkLib.OracleReduction.ProtocolSpec.Basic
 import ArkLib.OracleReduction.ProtocolSpec.Cast
 import ArkLib.OracleReduction.ProtocolSpec.SeqCompose
+import ArkLib.OracleReduction.ProverContext
 import ArkLib.OracleReduction.Salt
 import ArkLib.OracleReduction.Security.Basic
 import ArkLib.OracleReduction.Security.CoordinateWiseSpecialSoundness
@@ -296,6 +308,7 @@ import ArkLib.OracleReduction.Security.CoordinateWiseSpecialSoundness.Package
 import ArkLib.OracleReduction.Security.CoordinateWiseSpecialSoundness.ScalarRound
 import ArkLib.OracleReduction.Security.CoordinateWiseSpecialSoundness.SingleRound
 import ArkLib.OracleReduction.Security.Implications
+import ArkLib.OracleReduction.Security.RandomizedAdversary
 import ArkLib.OracleReduction.Security.RbrGame
 import ArkLib.OracleReduction.Security.Rewinding
 import ArkLib.OracleReduction.Security.RoundByRound
@@ -396,8 +409,10 @@ import ArkLib.ToMathlib.Polynomial.EvalExt
 import ArkLib.ToMathlib.Polynomial.NatDegreeOfSum
 import ArkLib.ToMathlib.Polynomial.RootMultiplicity
 import ArkLib.ToMathlib.Set.Finite
+import ArkLib.ToVCVio.EvalDist.CompletenessBound
 import ArkLib.ToVCVio.EvalDist.Defs.Support
 import ArkLib.ToVCVio.EvalDist.Instances.OptionT
+import ArkLib.ToVCVio.EvalDist.SoundnessBound
 import ArkLib.ToVCVio.OracleComp.Coercions.SubSpec
 import ArkLib.ToVCVio.OracleComp.EvalDist
 import ArkLib.ToVCVio.OracleComp.QueryTracking.LoggingOracle

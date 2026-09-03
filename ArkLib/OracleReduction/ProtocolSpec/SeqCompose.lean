@@ -103,6 +103,42 @@ theorem take_append_left :
 theorem take_append_left' : (pSpec₁ ++ₚ pSpec₂)⟦:m⟧ = pSpec₁ :=
   take_append_left
 
+/-- `take_append_left` at a general cut `k ≤ m`, not only at `k = m`. This is the form a round
+induction over an appended protocol needs, since it cuts at every intermediate round. -/
+theorem take_append_left_of_le {k : ℕ} (hk : k ≤ m) :
+    (pSpec₁ ++ₚ pSpec₂).take k (by omega) = pSpec₁.take k hk := by
+  have key : ∀ (i : Fin k), (Fin.castLE (by omega : k ≤ m + n) i)
+      = Fin.castAdd n (Fin.castLE hk i) := fun i => Fin.ext rfl
+  simp only [take, Fin.vappend_eq_append]
+  ext i
+  · simp only [Fin.take_apply, key, Fin.append_left]
+  · simp only [Fin.take_apply, key, Fin.append_left]
+
+/-- The direction of an appended protocol at a left-injected round is the left component's. -/
+@[simp]
+theorem dir_append_castAdd (i : Fin m) :
+    (pSpec₁ ++ₚ pSpec₂).dir (Fin.castAdd n i) = pSpec₁.dir i := by
+  simp [ProtocolSpec.append, Fin.vappend_eq_append, Fin.append_left]
+
+/-- `dir_append_castAdd` at a raw `Fin.mk` index. Stated separately, and proved by handing the
+`castAdd` form straight back, because rewriting `⟨v, _⟩` into `Fin.castAdd n ⟨v, _⟩` inside a goal
+fails on a non-type-correct motive once a bound like `v < m` is in play: the bound mentions the very
+index being rewritten. Taking the value and its two bounds as parameters makes the two sides
+definitionally equal, so no rewrite is needed. -/
+theorem dir_append_lt (v : ℕ) (hv : v < m) (h : v < m + n) :
+    (pSpec₁ ++ₚ pSpec₂).dir ⟨v, h⟩ = pSpec₁.dir ⟨v, hv⟩ :=
+  dir_append_castAdd (pSpec₂ := pSpec₂) ⟨v, hv⟩
+
+/-- The transcript type of an appended protocol, cut at a round inside the left component, is the
+left component's transcript type. The transcript-level counterpart of `prvState_castSucc_inl`, and
+the transport a round induction carries alongside the state. -/
+theorem transcript_append_castAdd (i : Fin (m + 1)) :
+    (pSpec₁ ++ₚ pSpec₂).Transcript (Fin.cast (by omega) (Fin.castAdd n i))
+      = pSpec₁.Transcript i := by
+  change ((pSpec₁ ++ₚ pSpec₂).take _ _).FullTranscript = (pSpec₁.take _ _).FullTranscript
+  simp only [Fin.val_cast, Fin.val_castAdd]
+  rw [take_append_left_of_le (show (i : ℕ) ≤ m from i.is_le)]
+
 @[simp]
 theorem rtake_append_right :
     (pSpec₁ ++ₚ pSpec₂).rtake n (Nat.le_add_left n m) = pSpec₂ := by
@@ -120,6 +156,165 @@ at an index in the second half is the right spec's type. -/
 theorem append_Type_natAdd (i : Fin n) :
     (pSpec₁ ++ₚ pSpec₂).«Type» (Fin.natAdd m i) = pSpec₂.«Type» i := by
   simp only [Fin.vappend_eq_append, Fin.append_right]
+
+/-- `append_Type_castAdd` at a raw `Fin.mk` index. See `dir_append_lt` for why the value-and-bounds
+form is the usable one. -/
+theorem type_append_lt (v : ℕ) (hv : v < m) (h : v < m + n) :
+    (pSpec₁ ++ₚ pSpec₂).Type ⟨v, h⟩ = pSpec₁.Type ⟨v, hv⟩ :=
+  append_Type_castAdd (pSpec₂ := pSpec₂) ⟨v, hv⟩
+
+/-- The direction of an appended protocol at a right-injected round is the right component's. -/
+theorem dir_append_natAdd (i : Fin n) :
+    (pSpec₁ ++ₚ pSpec₂).dir (Fin.natAdd m i) = pSpec₂.dir i := by
+  simp [ProtocolSpec.append, Fin.vappend_eq_append, Fin.append_right]
+
+/-- `type_append_lt`'s counterpart at or after the boundary. Unlike the left-hand versions this one
+cannot hand the `natAdd` form straight back: `Fin.natAdd m ⟨v - m, _⟩` has value `m + (v - m)`,
+which is `v` only under `m ≤ v` and so not definitionally, hence the explicit index rewrite. -/
+theorem type_append_ge (v : ℕ) (hm : m ≤ v) (h : v < m + n) :
+    (pSpec₁ ++ₚ pSpec₂).Type ⟨v, h⟩ = pSpec₂.Type ⟨v - m, by omega⟩ := by
+  have hidx : (⟨v, h⟩ : Fin (m + n)) = Fin.natAdd m ⟨v - m, by omega⟩ :=
+    Fin.ext (by simp only [Fin.val_natAdd]; omega)
+  rw [hidx]
+  exact append_Type_natAdd _
+
+/-- `dir_append_lt`'s counterpart at or after the boundary. -/
+theorem dir_append_ge (v : ℕ) (hm : m ≤ v) (h : v < m + n) :
+    (pSpec₁ ++ₚ pSpec₂).dir ⟨v, h⟩ = pSpec₂.dir ⟨v - m, by omega⟩ := by
+  have hidx : (⟨v, h⟩ : Fin (m + n)) = Fin.natAdd m ⟨v - m, by omega⟩ :=
+    Fin.ext (by simp only [Fin.val_natAdd]; omega)
+  rw [hidx]
+  exact dir_append_natAdd _
+
+/-- `type_append_ge` with the right-region round written as `m + w` rather than as `v` with `v - m`.
+`Fin.natAdd m ⟨w, _⟩` *is* `⟨m + w, _⟩` definitionally, so unlike `type_append_ge` this needs no
+index rewrite -- which is what makes `m + w` the right way to index a right-region induction. -/
+theorem type_append_add (w : ℕ) (hw : w < n) (h : m + w < m + n) :
+    (pSpec₁ ++ₚ pSpec₂).Type ⟨m + w, h⟩ = pSpec₂.Type ⟨w, hw⟩ :=
+  append_Type_natAdd (pSpec₁ := pSpec₁) ⟨w, hw⟩
+
+/-- `dir_append_ge` in the `m + w` indexing. See `type_append_add`. -/
+theorem dir_append_add (w : ℕ) (hw : w < n) (h : m + w < m + n) :
+    (pSpec₁ ++ₚ pSpec₂).dir ⟨m + w, h⟩ = pSpec₂.dir ⟨w, hw⟩ :=
+  dir_append_natAdd (pSpec₁ := pSpec₁) ⟨w, hw⟩
+
+/-- Transport a left-component transcript into the appended protocol, **pointwise**.
+
+Deliberately not a `cast` of the whole function type: a round induction extends the transcript with
+`Fin.snoc` at every step, and `Fin.snoc` commutes with a pointwise transport computably
+(`liftTranscript_snoc`) whereas moving it across a `cast` of a Pi type does not reduce. -/
+def liftTranscript (v : ℕ) (hv : v ≤ m) (hvn : v ≤ m + n)
+    (T : pSpec₁.Transcript ⟨v, by omega⟩) :
+    (pSpec₁ ++ₚ pSpec₂).Transcript ⟨v, by omega⟩ :=
+  fun i => cast (type_append_lt (pSpec₁ := pSpec₁) (pSpec₂ := pSpec₂)
+    (i : ℕ) (Nat.lt_of_lt_of_le i.isLt hv) (Nat.lt_of_lt_of_le i.isLt hvn)).symm (T i)
+
+/-- Extending a transcript and transporting it commute. This is the transcript half of a round
+induction's step; the state half is `Prover.prvState_lt'`. -/
+theorem liftTranscript_snoc (v : ℕ) (hv : v < m) (h : v < m + n)
+    (T : pSpec₁.Transcript ⟨v, by omega⟩) (msg : pSpec₁.Type ⟨v, hv⟩) :
+    liftTranscript (pSpec₂ := pSpec₂) (v + 1) (by omega) (by omega) (Fin.snoc T msg)
+      = Fin.snoc (liftTranscript (pSpec₂ := pSpec₂) v (by omega) (by omega) T)
+                 (cast (type_append_lt (pSpec₂ := pSpec₂) v hv h).symm msg) := by
+  funext i
+  refine Fin.lastCases ?_ ?_ i
+  · simp [liftTranscript]
+  · intro i'
+    simp [liftTranscript]
+    rfl
+
+/-- `liftTranscript_snoc` phrased with `Transcript.concat`. The two are definitionally equal, but
+`rw` matches syntactically, and a round induction's goals carry `Transcript.concat`. -/
+theorem liftTranscript_concat (v : ℕ) (hv : v < m) (h : v < m + n)
+    (T : pSpec₁.Transcript ⟨v, by omega⟩) (msg : pSpec₁.Type ⟨v, hv⟩) :
+    liftTranscript (pSpec₂ := pSpec₂) (v + 1) (by omega) (by omega) (Transcript.concat msg T)
+      = Transcript.concat (cast (type_append_lt (pSpec₂ := pSpec₂) v hv h).symm msg)
+          (liftTranscript (pSpec₂ := pSpec₂) v (by omega) (by omega) T) :=
+  liftTranscript_snoc v hv h T msg
+
+/-- Combine a full `pSpec₁` transcript with a partial `pSpec₂` transcript into a partial transcript
+of the appended protocol, pointwise. The right-region counterpart of `liftTranscript`: once a round
+index passes the boundary the transcript is `pSpec₁`'s entirely plus however much of `pSpec₂` has
+been produced.
+
+Indexed by `m + w`, not by `v` with `v - m`: `m + (w + 1)` is definitionally `(m + w) + 1`, so a
+round induction extending this by one never has to normalise its own index. -/
+def liftTranscriptR (w : ℕ) (hw : w ≤ n)
+    (T₁ : pSpec₁.FullTranscript) (T₂ : pSpec₂.Transcript ⟨w, by omega⟩) :
+    (pSpec₁ ++ₚ pSpec₂).Transcript ⟨m + w, by omega⟩ :=
+  fun i =>
+    have hi : (i : ℕ) < m + w := i.isLt
+    if h : (i : ℕ) < m
+      then cast (type_append_lt (pSpec₁ := pSpec₁) (pSpec₂ := pSpec₂) (i : ℕ) h
+        (by omega)).symm (T₁ ⟨i, h⟩)
+      else cast (type_append_ge (pSpec₁ := pSpec₁) (pSpec₂ := pSpec₂) (i : ℕ) (by omega)
+        (by omega)).symm (T₂ ⟨(i : ℕ) - m, by show (i : ℕ) - m < w; omega⟩)
+
+set_option maxHeartbeats 2000000 in
+-- The nested `split`s below produce a wide case tree, each leaf a cast chain. Raised limit.
+/-- Extending a right-region transcript and combining it commute -- the right-region counterpart of
+`liftTranscript_concat`. The proof is a case split at every level: outer index below or above the
+boundary, and `Fin.snoc` at `castSucc` or at `last`. The mixed cases are impossible and die by
+`omega`, but only once `Fin.val_castLT` has normalised the index so the contradiction is visible. -/
+theorem liftTranscriptR_concat (w : ℕ) (hw : w < n)
+    (T₁ : pSpec₁.FullTranscript) (T₂ : pSpec₂.Transcript ⟨w, by omega⟩)
+    (msg : pSpec₂.Type ⟨w, hw⟩) :
+    liftTranscriptR (pSpec₁ := pSpec₁) (w + 1) (by omega) T₁ (Transcript.concat msg T₂)
+      = Transcript.concat
+          (cast (type_append_add (pSpec₁ := pSpec₁) w hw (by omega)).symm msg)
+          (liftTranscriptR (pSpec₁ := pSpec₁) w (by omega) T₁ T₂) := by
+  funext i
+  refine Fin.lastCases ?_ ?_ i
+  · simp only [liftTranscriptR, Transcript.concat, Fin.val_last, Nat.add_eq, Fin.snoc]
+    split
+    · omega
+    · split
+      · omega
+      · split
+        · omega
+        · exact eq_of_heq (((cast_heq _ _).trans (cast_heq _ _)).trans
+            ((cast_heq _ _).trans (cast_heq _ _)).symm)
+  · intro i'
+    have hi' : (i' : ℕ) < m + w := i'.isLt
+    simp only [liftTranscriptR, Transcript.concat, Fin.coe_castSucc, Nat.add_eq, Fin.snoc,
+      Fin.val_castLT, Fin.val_castSucc]
+    split <;> (try split) <;> (try split) <;>
+      first
+        | omega
+        | (simp only [cast_cast]; rfl)
+        | exact eq_of_heq ((cast_heq _ _).trans
+            ((cast_heq _ _).trans (cast_heq _ _)).symm)
+        | exact eq_of_heq (((cast_heq _ _).trans (cast_heq _ _)).trans
+            (cast_heq _ _).symm)
+        | exact eq_of_heq (((cast_heq _ _).trans (cast_heq _ _)).trans
+            ((cast_heq _ _).trans (cast_heq _ _)).symm)
+        | exact eq_of_heq ((cast_heq _ _).trans (cast_heq _ _).symm)
+
+/-- At `w = 0` the right-region combiner is the left-region one at the boundary: no `pSpec₂` round
+has run yet, so every index is below `m` and takes `liftTranscriptR`'s left branch. This is the
+bridge the base case of a right-region round induction crosses -- it is what lets the boundary round
+hand its transcript, built by `liftTranscript`, to `liftTranscriptR`. -/
+theorem liftTranscriptR_zero (T₁ : pSpec₁.FullTranscript)
+    (T₂ : pSpec₂.Transcript ⟨0, by omega⟩) :
+    liftTranscriptR (pSpec₁ := pSpec₁) 0 (Nat.zero_le n) T₁ T₂
+      = liftTranscript (pSpec₂ := pSpec₂) m le_rfl (by omega) T₁ := by
+  funext i
+  have hi : (i : ℕ) < m := i.isLt
+  simp only [liftTranscriptR, liftTranscript, dif_pos hi]
+  rfl
+
+/-- `liftTranscriptR_concat` at the boundary, with the round written as `1` rather than `0 + 1`
+and the `w = 0` combiner already collapsed to `liftTranscript`. This is the exact rewrite the
+boundary round needs, and `rw` will not find `liftTranscriptR_concat` there: its left-hand side
+mentions `0 + 1`, which is definitionally but not syntactically `1`. -/
+theorem liftTranscriptR_one (hn : 0 < n) (T₁ : pSpec₁.FullTranscript)
+    (msg : pSpec₂.Type ⟨0, hn⟩) :
+    liftTranscriptR (pSpec₁ := pSpec₁) 1 hn T₁
+        (Transcript.concat msg (default : pSpec₂.Transcript 0))
+      = Transcript.concat (cast (type_append_add (pSpec₁ := pSpec₁) 0 hn (by omega)).symm msg)
+          (liftTranscript (pSpec₂ := pSpec₂) m le_rfl (by omega) T₁) := by
+  refine (liftTranscriptR_concat (pSpec₁ := pSpec₁) 0 hn T₁ default msg).trans ?_
+  rw [liftTranscriptR_zero]
 
 namespace Transcript
 
@@ -225,6 +420,23 @@ theorem append_snd (T₁ : FullTranscript pSpec₁) (T₂ : FullTranscript pSpec
   simp [snd, append]
 
 end FullTranscript
+
+/-- The right-region combiner at `w = n` is transcript concatenation. This is the last piece of
+`Prover.append_run`: the appended prover's transcript really is `T₁ ++ₜ T₂`. -/
+theorem liftTranscriptR_full (T₁ : pSpec₁.FullTranscript) (T₂ : pSpec₂.FullTranscript) :
+    liftTranscriptR (pSpec₁ := pSpec₁) n le_rfl T₁ T₂ = T₁ ++ₜ T₂ := by
+  funext i
+  refine Fin.addCases (fun j => ?_) (fun j => ?_) i
+  · simp only [liftTranscriptR, FullTranscript.append, Fin.happend, Fin.fappend_left,
+      Fin.val_castAdd, dif_pos j.isLt]
+    exact eq_of_heq ((cast_heq _ _).trans (cast_heq _ _).symm)
+  · have hj : ¬ (m + (j : ℕ) < m) := by omega
+    have hidx : (⟨m + (j : ℕ) - m, by omega⟩ : Fin n) = j := Fin.ext (by simp)
+    simp only [liftTranscriptR, FullTranscript.append, Fin.happend, Fin.fappend_right,
+      Fin.val_natAdd, dif_neg hj]
+    refine eq_of_heq (((cast_heq _ _).trans ?_).trans (cast_heq _ _).symm)
+    rw [hidx]
+    exact HEq.rfl
 
 def MessageIdx.inl (i : MessageIdx pSpec₁) : MessageIdx (pSpec₁ ++ₚ pSpec₂) :=
   ⟨Fin.castAdd n i.1, by simpa only [Fin.vappend_eq_append, Fin.append_left] using i.2⟩
@@ -462,6 +674,20 @@ theorem challenge_append_inl (i : ChallengeIdx pSpec₁) :
     (pSpec₁ ++ₚ pSpec₂).Challenge (ChallengeIdx.inl i) = pSpec₁.Challenge i :=
   append_Type_castAdd (pSpec₁ := pSpec₁) (pSpec₂ := pSpec₂) i.1
 
+/-- The message type of an appended protocol at a left-injected message index agrees with the
+message type of the left component. The message-side counterpart of `challenge_append_inl`, and
+likewise `append_Type_castAdd` at the underlying round index, since `MessageIdx.inl` is
+`Fin.castAdd` on rounds. -/
+theorem message_append_inl (i : MessageIdx pSpec₁) :
+    (pSpec₁ ++ₚ pSpec₂).Message (MessageIdx.inl i) = pSpec₁.Message i :=
+  append_Type_castAdd (pSpec₁ := pSpec₁) (pSpec₂ := pSpec₂) i.1
+
+/-- The message type of an appended protocol at a right-injected message index agrees with the
+message type of the right component. Dual to `message_append_inl`. -/
+theorem message_append_inr (i : MessageIdx pSpec₂) :
+    (pSpec₁ ++ₚ pSpec₂).Message (MessageIdx.inr i) = pSpec₂.Message i :=
+  append_Type_natAdd (pSpec₁ := pSpec₁) (pSpec₂ := pSpec₂) i.1
+
 /-- The challenge type of an appended protocol at a right-injected challenge index agrees with the
 challenge type of the right component. Dually to `challenge_append_inl`, this is
 `append_Type_natAdd` at the underlying round index. -/
@@ -502,8 +728,10 @@ instance lawfulSubSpec_challenge_append_right :
 round index is `< m` and a right-injected one is `≥ m`. This is what rules out the two components'
 challenge queries aliasing each other after composition.
 
-Currently unconsumed: recorded because `Verifier.append_soundness` will need it, and because VCV-io
-ships the analogue for `spec₁ + spec₂`. -/
+Currently unconsumed -- `Verifier.append_soundness` ended up going through
+`evalDist_simulateQ_liftM_left` / `_right` instead, which restrict the appended challenge oracle
+one side at a time. Recorded because VCV-io ships the analogue for `spec₁ + spec₂` and because a
+round-by-round argument, which reads single challenge rounds, is the natural consumer. -/
 instance disjointSubSpec_challenge_append_left_right :
     OracleSpec.DisjointSubSpec
       [pSpec₁.Challenge]ₒ [pSpec₂.Challenge]ₒ [(pSpec₁ ++ₚ pSpec₂).Challenge]ₒ :=

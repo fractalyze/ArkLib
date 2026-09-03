@@ -31,15 +31,97 @@ import ArkLib.OracleReduction.Composition.Sequential.General
   security properties of its building blocks (i.e. completeness, all notions of soundness, HVZK,
   etc.)
 
-  ## Notes
+  ## Which form is the definition
 
-  The BCS transform has a lot of degrees of freedom. For instance, we can choose to run the opening
-  arguments for each verifier's query in any order.
+  The transform's free choices -- the order of the opening arguments, and whether they are batched
+  -- are usually presented as optimizations. Here one of them is not, though for a narrower reason
+  than "sequential composition is blocked".
 
-  There are also a lot of variants and avenues for optimization:
+  What is actually open, in `ArkLib/OracleReduction/Composition/Sequential/Append.lean`:
 
-  - We can ``batch'' many opening arguments together (using homomorphic properties of the commitment
-    scheme, or via another round of interaction, or via specialized techniques like Merkle capping).
+  - `Verifier.append_run` is proved, by `rfl`. The verifier side of a composition is definitional.
+  - `Prover.append_run` -- running `P₁.append P₂` equals running `P₁` then `P₂` -- is proved.
+  - `Reduction.append_completeness` is proved, but not as it was stated: `(R₁.append R₂).run` runs
+    both provers and then both verifiers, whereas running `R₁` then `R₂` interleaves them, and for
+    a stateful handler the two genuinely differ (`AppendCounterexample.lean`). The repaired
+    theorem lives in `Composition/Sequential/AppendCompleteness.lean` and carries
+    `QueryImpl.IsStateless`, which is free at `oSpec = []ₒ`.
+  - `Verifier.append_soundness` is proved, in `Composition/Sequential/AppendSoundness.lean`,
+    with the same `QueryImpl.IsStateless` hypothesis and an `init` that never fails. Since the
+    adversary is an arbitrary prover for the appended protocol, it also needs
+    `Prover.takeLeft` / `Prover.dropLeft` from `Composition/Sequential/SplitProver.lean`.
+  - `Verifier.append_knowledgeSoundness` is proved in
+    `Composition/Sequential/AppendKnowledgeSoundness.lean` for named, log-blind extractors and a
+    deterministic first verifier -- both vacuous at `oSpec = []ₒ`. Without them it is still
+    `sorry`, and what stands in the way is the knowledge-soundness game's flat `QueryLog`: the
+    composed extractor cannot reconstruct the first component's verifier log.
+  - The two round-by-round statements are proved, in
+    `Composition/Sequential/AppendRbrSoundness.lean` and
+    `Composition/Sequential/AppendRbrKnowledgeSoundness.lean`, for a *deterministic* (non-failing)
+    first verifier and a stateless handler. Their unconditional statements are still `sorry`, and
+    so is `Extractor.RoundByRound.append`; what stands in the way of all three is that past the cut
+    the composed state function -- and, for the knowledge version, the composed extractor -- must
+    name the statement the first verifier reported, at every round and as a function of the
+    transcript alone, which a randomized `V₁` does not provide.
+    `Verifier.StateFunction.append` and `Extractor.RoundByRound.appendOfPure` are the deterministic
+    forms those proofs consume. The n-fold statements in
+    `Composition/Sequential/General.lean` are *derived* from these by induction, so they are not
+    an independent difficulty.
+
+  So what is open on the security side of one append is the *randomized*-first-verifier case -- and
+  batching does **not** escape it. What batching buys is:
+
+  1. A **static arity**. The sequential round count `n + ∑ i, nCom i` sums over the verifier's
+     query list, a runtime value -- the stub this file replaced took `queries : List …` as a
+     parameter for exactly that reason, so the transformed protocol's *type* depended on the
+     execution. Batched, the arity is `n + nOpen`, known statically. That is a typing problem, not
+     a proof difficulty, and it is the strongest of the three.
+  2. **One application instead of an induction**: one append lemma, at a fixed and known
+     suffix where it could also be discharged by hand, rather than the `seqCompose` induction over
+     a list whose length is not known until run time.
+  3. A **tighter error term**: `ε + δ + η` plus one batching term, not `ε + ∑ δᵢ + ∑ ηᵢ`.
+
+  On that basis the batched form is taken as the definition -- see `ProtocolSpec.BCSTransform` --
+  and the sequential form is derived, not the reverse.
+
+  Batching needs the verifier's query list before the openings run, so it is stated for an
+  `OracleVerifier.NonAdaptive`, whose `queryMsg` supplies exactly that list.
+
+  ## What batching costs
+
+  Two things, both of which must be carried explicitly rather than left in a remark:
+
+  - a soundness term for the batching challenge;
+  - an admissibility obligation on the committed data, `BCS.BatchingAdmissibility`. Homomorphy of
+    the commitment *map* is not enough; see that structure's docstring.
+
+  ## What is here, and what is not
+
+  Done, and free of `sorry`:
+
+  - `ProtocolSpec.BCSTransform`, the batched specification, plus the structural API for
+    `ProtocolSpec.renameMessage` it needs (`renameMessage_message`, `renameMessage_challenge`, and
+    the index-set equalities) -- without those, nothing can be written over a renamed spec, since
+    the `dite` in `renameMessage` does not reduce for a variable index.
+  - `BCS.BatchingAdmissibility`, the obligation the batched route carries.
+  - `Prover.commitMessages`, the **commit phase**: it runs the underlying prover, commits to each
+    message, sends the commitment in its place, and retains the message and decommitment.
+  - `Verifier.commitMessages`, which exposes the original input and the commitments received in
+    the transcript, and `OracleReduction.BCSTransform`, which appends a supplied opening reduction.
+    The intermediate statement/witness split is exactly what that opening reduction needs.
+
+  Not yet here:
+
+  - A concrete **opening phase** prover and verifier, i.e. the batched opening argument over
+    `pSpecOpen`. It is a parameter of `OracleReduction.BCSTransform` because its batching and
+    admissibility policy cannot be recovered from an arbitrary oracle reduction.
+  - The security statements. Completeness must take a `BCS.BatchingAdmissibility` hypothesis; it is
+    false without one for any norm-bounded scheme. Completeness can now rest on
+    `Reduction.append_completeness`, plain soundness on `Verifier.append_soundness`, and
+    knowledge soundness on `Verifier.append_knowledgeSoundness_of_logIndependent` -- whose
+    hypotheses hold at `oSpec = []ₒ`. Only the round-by-round family is still `sorry` upstream of
+    this file; see above, and note that batching narrows that dependency rather than removing
+    it.
 -/
 
 variable {n : ℕ}
@@ -53,28 +135,313 @@ def renameMessage (pSpec : ProtocolSpec n) (NewMessage : pSpec.MessageIdx → Ty
   ⟨ pSpec.dir,
     fun i => if h : pSpec.dir i = Direction.P_to_V then NewMessage ⟨i, h⟩ else pSpec.«Type» i⟩
 
--- def BCSTransform (pSpec : ProtocolSpec n)
---     {queries : List ((i : pSpec.MessageIdx) × (pSpec.Message i))}
-  --   (pSpecCom : ∀ i, ProtocolSpec (nCom i)) (CommType : pSpec.MessageIdx → Type) :
-  --     ProtocolSpec (n + ∑ i, nCom i) :=
-  -- .append (pSpec.renameMessage CommType) (sorry)
+section RenameMessage
+
+variable (pSpec : ProtocolSpec n) (NewMessage : pSpec.MessageIdx → Type)
+
+/-- `renameMessage` preserves directions, so it preserves the arity and the round structure. -/
+@[simp]
+theorem renameMessage_dir : (pSpec.renameMessage NewMessage).dir = pSpec.dir := rfl
+
+/-- Renaming preserves the message index set definitionally: the indices are carved out by `dir`,
+which `renameMessage` leaves alone. Stated so that a message index can be moved across the rename
+without a transport. -/
+theorem renameMessage_messageIdx :
+    (pSpec.renameMessage NewMessage).MessageIdx = pSpec.MessageIdx := rfl
+
+/-- Likewise for challenge indices. -/
+theorem renameMessage_challengeIdx :
+    (pSpec.renameMessage NewMessage).ChallengeIdx = pSpec.ChallengeIdx := rfl
+
+/-- At a message index, renaming yields the new message type. This is the computation rule the
+name promises, and the reason the `dite` in `renameMessage` is not observable downstream. -/
+@[simp]
+theorem renameMessage_message (i : pSpec.MessageIdx) :
+    (pSpec.renameMessage NewMessage).Message i = NewMessage i :=
+  dif_pos i.2
+
+/-- At a challenge index, renaming changes nothing: challenges are sent by the verifier and are
+not committed to. -/
+@[simp]
+theorem renameMessage_challenge (i : pSpec.ChallengeIdx) :
+    (pSpec.renameMessage NewMessage).Challenge i = pSpec.Challenge i :=
+  dif_neg (by rw [i.2]; exact fun h => Direction.noConfusion h)
+
+end RenameMessage
+
+/-- The **batched** BCS protocol specification: every prover message is replaced by its commitment
+type, and a *single* opening argument `pSpecOpen` is appended.
+
+The suffix is fixed -- one opening argument, not one per query -- which is why the round count is
+`n + nOpen` and not `n + ∑ i, nCom i`. See the module docstring for why this, and not the per-query
+form, is the definition. -/
+def BCSTransform {nOpen : ℕ} (pSpec : ProtocolSpec n)
+    (CommType : pSpec.MessageIdx → Type) (pSpecOpen : ProtocolSpec nOpen) :
+    ProtocolSpec (n + nOpen) :=
+  pSpec.renameMessage CommType ++ₚ pSpecOpen
+
+@[simp]
+theorem BCSTransform_take {nOpen : ℕ} (pSpec : ProtocolSpec n)
+    (CommType : pSpec.MessageIdx → Type) (pSpecOpen : ProtocolSpec nOpen) :
+    (pSpec.BCSTransform CommType pSpecOpen)⟦:n⟧ = pSpec.renameMessage CommType :=
+  take_append_left'
+
+@[simp]
+theorem BCSTransform_dir {nOpen : ℕ} (pSpec : ProtocolSpec n)
+    (CommType : pSpec.MessageIdx → Type) (pSpecOpen : ProtocolSpec nOpen) (i : Fin n) :
+    (pSpec.BCSTransform CommType pSpecOpen).dir (Fin.castAdd nOpen i) = pSpec.dir i := by
+  simp [BCSTransform, renameMessage, append]
 
 end ProtocolSpec
+
+namespace BCS
+
+/-- The obligation batching imposes on a commitment scheme's *acceptance predicate*.
+
+Reducing the verifier's `k` queries to one opening needs more than a homomorphic commitment map. If
+the scheme accepts an opening only when the committed data satisfies some predicate -- Ajtai's
+`ArkLib.Lattices.Ajtai.Simple.commitmentScheme` gates on `isShort`, and that gate is exactly what
+its binding reduction to Module-SIS consumes -- then the combined data must satisfy that predicate
+too. It need not: `isShort` is an arbitrary `Data → Bool`, closed under neither addition nor
+scaling, and for a genuine norm bound `‖∑ rᵢ dᵢ‖` grows with the query count and the challenge set.
+
+The party rejected in that case is the *honest* prover, so what fails is completeness, not
+soundness. This is the trap in reading "the commitment is homomorphic, so batching is free": the
+commitment *map* being linear (for Ajtai, `matVecMul_add` and `matVecMul_scalarVecMul`) says
+nothing about the *scheme's* acceptance predicate.
+
+The fix is two predicates rather than one: the per-message `isAdmissible` the scheme gates on, and
+a weaker `isAdmissibleBatch` whose slack is determined by the query count `k` and the challenge
+set, under which the combination is still openable. `combine_isAdmissibleBatch` is the obligation;
+`isAdmissibleBatch_of_isAdmissible` records that the batched predicate is the weaker of the two, so
+opening a single message is unaffected.
+
+See `BatchingAdmissibility.ofNormBound` for the norm-bounded case, where the slack is exactly `k`
+times the challenge bound. -/
+structure BatchingAdmissibility (Data Challenge : Type) (k : ℕ) where
+  /-- The predicate the scheme's verifier gates a single opening on. -/
+  isAdmissible : Data → Prop
+  /-- The weaker predicate under which a batched combination is still openable. -/
+  isAdmissibleBatch : Data → Prop
+  /-- The challenge-weighted combination of the `k` committed messages. -/
+  combine : (Fin k → Challenge) → (Fin k → Data) → Data
+  /-- The batched predicate is the weaker of the two, so batching never rejects data that a direct
+  opening would have accepted. -/
+  isAdmissibleBatch_of_isAdmissible : ∀ d, isAdmissible d → isAdmissibleBatch d
+  /-- Combining admissible messages lands in the batched predicate. This is the hypothesis a
+  norm-bounded scheme has to discharge, and the one that does not come for free from homomorphy. -/
+  combine_isAdmissibleBatch : ∀ (r : Fin k → Challenge) (d : Fin k → Data),
+    (∀ i, isAdmissible (d i)) → isAdmissibleBatch (combine r d)
+
+namespace BatchingAdmissibility
+
+variable {Data Challenge : Type} {k : ℕ}
+
+/-- A scheme whose verifier gates on nothing batches with no obligation at all. This is the
+degenerate case that "homomorphic, so batching is free" silently assumes; it is sound precisely
+when the acceptance predicate is vacuous. -/
+def ofNoGate (combine : (Fin k → Challenge) → (Fin k → Data) → Data) :
+    BatchingAdmissibility Data Challenge k where
+  isAdmissible := fun _ => True
+  isAdmissibleBatch := fun _ => True
+  combine := combine
+  isAdmissibleBatch_of_isAdmissible := fun _ _ => trivial
+  combine_isAdmissibleBatch := fun _ _ _ => trivial
+
+/-- The norm-bounded case, which is the one that matters for lattice schemes.
+
+Given a size function, a per-message bound `B`, a bound `c` on how far a single challenge can
+scale a message, and the triangle inequality for `combine`, the batched bound is `k * (c * B)`.
+The slack is exactly the query count times the challenge bound -- that product is what a lattice
+scheme's parameters have to absorb, and stating it is the whole point of keeping the two predicates
+apart. -/
+def ofNormBound (size : Data → ℕ) (B c : ℕ) (hc : 0 < c) (hk : 0 < k)
+    (combine : (Fin k → Challenge) → (Fin k → Data) → Data)
+    (hcombine : ∀ (r : Fin k → Challenge) (d : Fin k → Data),
+      size (combine r d) ≤ ∑ i, c * size (d i)) :
+    BatchingAdmissibility Data Challenge k where
+  isAdmissible := fun d => size d ≤ B
+  isAdmissibleBatch := fun d => size d ≤ k * (c * B)
+  combine := combine
+  isAdmissibleBatch_of_isAdmissible := fun d hd =>
+    hd.trans ((Nat.le_mul_of_pos_left B hc).trans (Nat.le_mul_of_pos_left (c * B) hk))
+  combine_isAdmissibleBatch := fun r d hd => by
+    refine (hcombine r d).trans ?_
+    calc ∑ i, c * size (d i)
+        ≤ ∑ _i : Fin k, c * B := Finset.sum_le_sum fun i _ => Nat.mul_le_mul_left c (hd i)
+      _ = k * (c * B) := by simp
+
+/-- The norm-bounded slack is not vacuous: a message of size exactly `B` is admissible, and the
+batched bound it certifies is `k * (c * B)`. Recorded so that a later change which collapses the
+two predicates fails here rather than silently in a completeness proof. -/
+theorem ofNormBound_isAdmissibleBatch_bound (size : Data → ℕ) (B c : ℕ) (hc : 0 < c) (hk : 0 < k)
+    (combine : (Fin k → Challenge) → (Fin k → Data) → Data)
+    (hcombine : ∀ (r : Fin k → Challenge) (d : Fin k → Data),
+      size (combine r d) ≤ ∑ i, c * size (d i))
+    (r : Fin k → Challenge) (d : Fin k → Data) (hd : ∀ i, size (d i) ≤ B) :
+    size ((ofNormBound size B c hc hk combine hcombine).combine r d) ≤ k * (c * B) :=
+  (ofNormBound size B c hc hk combine hcombine).combine_isAdmissibleBatch r d hd
+
+end BatchingAdmissibility
+
+end BCS
+
+namespace Prover
+
+open ProtocolSpec
+
+variable {n : ℕ} {pSpec : ProtocolSpec n} {ι : Type} {oSpec : OracleSpec ι}
+    {StmtIn WitIn StmtOut WitOut : Type}
+    {CommitmentType Decommitment : pSpec.MessageIdx → Type}
+
+/-- What the commit phase retains for each message it has sent: the commitment (public, and the
+opening phase's input statement), the message itself, and the decommitment (both private, and the
+opening phase's witness). -/
+abbrev Committed (pSpec : ProtocolSpec n) (CommitmentType Decommitment : pSpec.MessageIdx → Type)
+    (j : pSpec.MessageIdx) : Type :=
+  CommitmentType j × pSpec.Message j × Decommitment j
+
+/-- The state of the commit-phase prover at round `k`: the underlying prover's state, together with
+the committed data for every round strictly before `k`.
+
+The bound lives in the type rather than in a separate invariant, so `output` can hand the opening
+phase a *total* family with no runtime check: at `Fin.last n` every message index satisfies it. -/
+def CommitState (P : Prover oSpec StmtIn WitIn StmtOut WitOut pSpec)
+    (CommitmentType Decommitment : pSpec.MessageIdx → Type) (k : Fin (n + 1)) : Type :=
+  P.PrvState k × StmtIn ×
+    ((j : pSpec.MessageIdx) → j.1.val < k.val → Committed pSpec CommitmentType Decommitment j)
+
+/-- The commit phase of the BCS transform: run `P`, but commit to each message and send the
+commitment in its place, retaining the message and its decommitment for the opening phase.
+
+The resulting prover runs over `pSpec.renameMessage CommitmentType`, which has the same directions
+and the same arity as `pSpec` -- only the message types change, which is what makes this a prover
+for the *first* phase of `ProtocolSpec.BCSTransform` rather than a new protocol.
+
+Its output statement carries the commitments and its output witness carries the messages and
+decommitments: exactly the split a batched opening argument needs, public part to public part and
+private part to private part. -/
+def commitMessages (P : Prover oSpec StmtIn WitIn StmtOut WitOut pSpec)
+    (commit : (i : pSpec.MessageIdx) → pSpec.Message i →
+      OracleComp oSpec (CommitmentType i × Decommitment i)) :
+    Prover oSpec StmtIn WitIn
+      (StmtIn × ((i : pSpec.MessageIdx) → CommitmentType i))
+      (StmtOut × WitOut × ((i : pSpec.MessageIdx) → pSpec.Message i × Decommitment i))
+      (pSpec.renameMessage CommitmentType) where
+  PrvState := P.CommitState CommitmentType Decommitment
+  input := fun x => (P.input x, x.1, fun _ h => absurd h (Nat.not_lt_zero _))
+  sendMessage := fun i st => do
+    let (msg, st') ← P.sendMessage i st.1
+    let (cm, dc) ← commit i msg
+    let extend : (j : pSpec.MessageIdx) → j.1.val < i.1.val + 1 →
+        Committed pSpec CommitmentType Decommitment j := fun j hj =>
+      if hlt : j.1.val < i.1.val then st.2.2 j hlt
+      else
+        have hji : j = i := Subtype.ext (Fin.ext (Nat.le_antisymm (by omega) (by omega)))
+        hji ▸ (cm, msg, dc)
+    return (cast (renameMessage_message pSpec CommitmentType i).symm cm, (st', st.2.1, extend))
+  receiveChallenge := fun i st => do
+    let f ← P.receiveChallenge i st.1
+    return fun chal =>
+      (f (cast (renameMessage_challenge pSpec CommitmentType i) chal), st.2.1,
+        fun j hj =>
+          st.2.2 j (by
+            rcases Nat.lt_succ_iff_lt_or_eq.mp hj with h | h
+            · exact h
+            · exfalso
+              have hji : (j.1 : Fin n) = i.1 := Fin.ext h
+              exact Direction.noConfusion ((hji ▸ j.2 : pSpec.dir i.1 = _).symm.trans i.2)))
+  output := fun st => do
+    let (stmtOut, witOut) ← P.output st.1
+    let committed : (j : pSpec.MessageIdx) → Committed pSpec CommitmentType Decommitment j :=
+      fun j => st.2.2 j (by simp only [Fin.val_last]; exact j.1.isLt)
+    return ((st.2.1, fun i => (committed i).1),
+      (stmtOut, witOut, fun i => (committed i).2))
+
+/-- At the last round every message index is in range. This is the fact `commitMessages.output`
+rests on to produce a *total* family of committed data with no runtime check; it is stated
+separately so that a change to `CommitState`'s bound fails here rather than inside `output`. -/
+theorem messageIdx_lt_last (j : pSpec.MessageIdx) : j.1.val < (Fin.last n).val := by
+  simp only [Fin.val_last]; exact j.1.isLt
+
+variable (P : Prover oSpec StmtIn WitIn StmtOut WitOut pSpec)
+    (commit : (i : pSpec.MessageIdx) → pSpec.Message i →
+      OracleComp oSpec (CommitmentType i × Decommitment i))
+
+/-- The commit phase does not disturb the underlying prover's initialization. -/
+@[simp]
+theorem commitMessages_input_fst (x : StmtIn × WitIn) :
+    ((P.commitMessages commit).input x).1 = P.input x := rfl
+
+/-- Nothing is committed before the first round. -/
+theorem commitMessages_input_snd (x : StmtIn × WitIn) (j : pSpec.MessageIdx)
+    (h : j.1.val < (0 : Fin (n + 1)).val) :
+    ((P.commitMessages commit).input x).2.2 j h = absurd h (Nat.not_lt_zero _) := rfl
+
+/-- The commit phase runs over a specification with the same directions as the original, so it is a
+prover for the first `n` rounds of `ProtocolSpec.BCSTransform` and not for some other protocol. -/
+theorem commitMessages_dir :
+    (pSpec.renameMessage CommitmentType).dir = pSpec.dir := rfl
+
+end Prover
+
+namespace Verifier
+
+open ProtocolSpec
+
+variable {n : ℕ} {pSpec : ProtocolSpec n} {ι : Type} {oSpec : OracleSpec ι}
+    {StmtIn : Type} {CommitmentType : pSpec.MessageIdx → Type}
+
+/-- The commit-phase verifier exposes the commitments it received, together with its unchanged
+input statement. Keeping the input is essential: the opening phase needs it to run the original
+oracle verifier after the committed messages have been authenticated. -/
+def commitMessages :
+    Verifier oSpec StmtIn
+      (StmtIn × ((i : pSpec.MessageIdx) → CommitmentType i))
+      (pSpec.renameMessage CommitmentType) where
+  verify := fun stmt transcript =>
+    pure (stmt, fun i =>
+      cast (ProtocolSpec.renameMessage_message pSpec CommitmentType i) (transcript.messages i))
+
+end Verifier
 
 namespace OracleReduction
 
 variable {pSpec : ProtocolSpec n} {ι : Type} {oSpec : OracleSpec ι}
     [Oₘ : ∀ i, OracleInterface (pSpec.Message i)]
 
-variable {nCom : pSpec.MessageIdx → ℕ} {pSpecCom : ∀ i, ProtocolSpec (nCom i)}
-    {Randomness : pSpec.MessageIdx → Type} {CommitmentType : pSpec.MessageIdx → Type}
+variable {nOpen : ℕ} {pSpecOpen : ProtocolSpec nOpen}
+    {CommitmentType Decommitment : pSpec.MessageIdx → Type}
 
 variable {StmtIn StmtOut WitIn WitOut : Type}
     {ιₛᵢ : Type} {OStmtIn : ιₛᵢ → Type} [Oₛᵢ : ∀ i, OracleInterface (OStmtIn i)]
-    {ιₛₒ : Type} {OStmtOut : ιₛₒ → Type}
+    {ιₛₒ : Type} {OStmtOut : ιₛₒ → Type} [Oₛₒ : ∀ i, OracleInterface (OStmtOut i)]
 
--- def BCSTransform (reduction : OracleReduction pSpec oSpec StmtIn StmtOut WitIn WitOut OStmtIn OStmtOut) :
---     Reduction (pSpec.BCSTransform commitmentScheme) oSpec StmtIn StmtOut WitIn WitOut :=
---     sorry
+/-- Assemble the BCS commit phase with a supplied batched opening reduction.
+
+The intermediate public statement contains the original input and the commitments observed by the
+commit-phase verifier. The intermediate witness contains the original prover output, its witness,
+and every message/decommitment pair. This split gives the opening reduction exactly what it needs:
+the honest prover has the private openings, while its verifier has the original input and public
+commitments needed to authenticate the oracle answers and run the original oracle verifier.
+
+The opening reduction is an explicit parameter because batching policy, query order, and the
+commitment scheme's admissibility condition are genuine choices rather than structure recoverable
+from an `OracleReduction`. In particular, its completeness theorem must carry the relevant
+`BCS.BatchingAdmissibility` hypothesis. -/
+def BCSTransform
+    (reduction : OracleReduction oSpec StmtIn OStmtIn WitIn StmtOut OStmtOut WitOut pSpec)
+    (commit : (i : pSpec.MessageIdx) → pSpec.Message i →
+      OracleComp oSpec (CommitmentType i × Decommitment i))
+    (opening : Reduction oSpec
+      ((StmtIn × ((i : ιₛᵢ) → OStmtIn i)) ×
+        ((i : pSpec.MessageIdx) → CommitmentType i))
+      ((StmtOut × ((i : ιₛₒ) → OStmtOut i)) × WitOut ×
+        ((i : pSpec.MessageIdx) → pSpec.Message i × Decommitment i))
+      (StmtOut × ((i : ιₛₒ) → OStmtOut i)) WitOut pSpecOpen) :
+    Reduction oSpec (StmtIn × ((i : ιₛᵢ) → OStmtIn i)) WitIn
+      (StmtOut × ((i : ιₛₒ) → OStmtOut i)) WitOut
+      (pSpec.BCSTransform CommitmentType pSpecOpen) :=
+  (Reduction.mk (reduction.prover.commitMessages commit) Verifier.commitMessages).append opening
 
 end OracleReduction

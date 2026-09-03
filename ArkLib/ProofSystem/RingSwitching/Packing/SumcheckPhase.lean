@@ -556,8 +556,8 @@ theorem coreInteraction_perfectCompleteness :
     (init := init)
     (impl := impl) := by
   -- Follows from append_perfectCompleteness of interactionPhase and finalSumcheck
-  apply OracleReduction.append_perfectCompleteness
-  · apply OracleReduction.seqCompose_perfectCompleteness
+  apply OracleReduction.append_perfectCompleteness (QueryImpl.isStateless_of_isEmpty impl)
+  · apply OracleReduction.seqCompose_perfectCompleteness (QueryImpl.isStateless_of_isEmpty impl)
       (rel := fun i => sumcheckRoundRelation κ L K P ℓ ℓ' h_l aOStmtIn i)
       (R := fun i => iteratedSumcheckOracleReduction κ L K P ℓ ℓ' aOStmtIn i)
       (h := fun i =>

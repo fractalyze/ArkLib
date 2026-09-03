@@ -111,17 +111,17 @@ private theorem prover_run_map_eq {k t : ℕ} {β : Type}
       (r.1.messages ⟨1, rfl⟩) (r.1.challenges ⟨2, rfl⟩) r.2) <$>
         Prover.run stmt witIn prover =
       (do
-      let c ← liftComp ((pSpec (ι := ι) (F := F) k t).getChallenge ⟨0, rfl⟩)
-        ([]ₒ + [(pSpec (ι := ι) (F := F) k t).Challenge]ₒ)
       let f0 ← liftComp
         (prover.receiveChallenge ⟨0, rfl⟩ (prover.input (stmt, witIn)))
         ([]ₒ + [(pSpec (ι := ι) (F := F) k t).Challenge]ₒ)
+      let c ← liftComp ((pSpec (ι := ι) (F := F) k t).getChallenge ⟨0, rfl⟩)
+        ([]ₒ + [(pSpec (ι := ι) (F := F) k t).Challenge]ₒ)
       let pre ← liftComp (prover.sendMessage ⟨1, rfl⟩ (f0 c))
+        ([]ₒ + [(pSpec (ι := ι) (F := F) k t).Challenge]ₒ)
+      let f2 ← liftComp (prover.receiveChallenge ⟨2, rfl⟩ pre.2)
         ([]ₒ + [(pSpec (ι := ι) (F := F) k t).Challenge]ₒ)
       let xs ← liftComp
         ((pSpec (ι := ι) (F := F) k t).getChallenge ⟨2, rfl⟩)
-        ([]ₒ + [(pSpec (ι := ι) (F := F) k t).Challenge]ₒ)
-      let f2 ← liftComp (prover.receiveChallenge ⟨2, rfl⟩ pre.2)
         ([]ₒ + [(pSpec (ι := ι) (F := F) k t).Challenge]ₒ)
       let out ← liftComp (prover.output (f2 xs))
         ([]ₒ + [(pSpec (ι := ι) (F := F) k t).Challenge]ₒ)
@@ -182,15 +182,27 @@ theorem oracleVerifier_knowledgeSoundnessWith_of_transition_failure_prob_le
   unfold OracleVerifier.knowledgeSoundnessWith Verifier.knowledgeSoundnessWith
   rintro ⟨stmt, oStmt⟩ witIn prover
   rw [ENNReal.coe_add, ENNReal.coe_mul, ENNReal.coe_sub, ENNReal.coe_one]
-  refine ProtocolSpec.probEvent_optionT_simulateQ_addLift_getChallenge_first_bind_le_convex
+  -- Round 0's `receiveChallenge` runs before the round-0 challenge is drawn (see
+  -- `Prover.processRound`), so it is the prefix `mid` rather than part of the per-challenge tail.
+  refine ProtocolSpec.probEvent_optionT_simulateQ_addLift_prefix_getChallenge_first_bind_le_convex
     (ε₂ := (((1 - δ) ^ t : ℝ≥0) : ENNReal))
     init impl _ ⟨0, rfl⟩
-    (fun γ ↦ do
-      let pre ← (liftComp (prover.receiveChallenge ⟨0, rfl⟩
-            (prover.input ((stmt, oStmt), witIn)))
-            ([]ₒ + [(pSpec (ι := ι) (F := F) k t).Challenge]ₒ)) >>= fun fc ↦
-          liftComp (prover.sendMessage ⟨1, rfl⟩ (fc γ))
-            ([]ₒ + [(pSpec (ι := ι) (F := F) k t).Challenge]ₒ)
+    (liftComp (prover.receiveChallenge ⟨0, rfl⟩
+      (prover.input ((stmt, oStmt), witIn)))
+      ([]ₒ + [(pSpec (ι := ι) (F := F) k t).Challenge]ₒ))
+    (fun fc γ ↦ do
+      -- Round 2's `receiveChallenge` likewise precedes its challenge draw, so it joins the
+      -- round-2 prefix; the pair carries the round-1 message forward to the acceptance test.
+      let pre ← (do
+        let msg ← liftComp (prover.sendMessage ⟨1, rfl⟩ (fc γ))
+              ([]ₒ + [(pSpec (ι := ι) (F := F) k t).Challenge]ₒ)
+        let fc2 ← liftComp (prover.receiveChallenge
+              (⟨2, by rfl⟩ : (pSpec (ι := ι) (F := F) k t).ChallengeIdx) msg.2)
+              ([]ₒ + [(pSpec (ι := ι) (F := F) k t).Challenge]ₒ)
+        pure ((msg.1, fc2) :
+          (pSpec (ι := ι) (F := F) k t).Message ⟨1, rfl⟩ ×
+            ((pSpec (ι := ι) (F := F) k t).Challenge ⟨2, rfl⟩ →
+              prover.PrvState (Fin.last 3))))
       let xs ← liftComp ((pSpec (ι := ι) (F := F) k t).getChallenge ⟨2, rfl⟩)
           ([]ₒ + [(pSpec (ι := ι) (F := F) k t).Challenge]ₒ)
       (fun out : (OutputStatement × ∀ i, OutputOracleStatement i) × OutputWitness ↦
@@ -199,11 +211,8 @@ theorem oracleVerifier_knowledgeSoundnessWith_of_transition_failure_prob_le
         then some ((stmt, oStmt), some (transition (stmt, oStmt) γ pre.1),
           (((), nofun) : OutputStatement × ∀ i, OutputOracleStatement i), out.2)
         else none) <$>
-        ((liftComp (prover.receiveChallenge
-            (⟨2, by rfl⟩ : (pSpec (ι := ι) (F := F) k t).ChallengeIdx) pre.2)
-            ([]ₒ + [(pSpec (ι := ι) (F := F) k t).Challenge]ₒ)) >>= fun fc2 ↦
-          liftComp (prover.output (fc2 xs))
-            ([]ₒ + [(pSpec (ι := ι) (F := F) k t).Challenge]ₒ)))
+          liftComp (prover.output (pre.2 xs))
+            ([]ₒ + [(pSpec (ι := ι) (F := F) k t).Challenge]ₒ))
     _
     (fun γ ↦ ∃ g : Fin k → F,
       ((stmt, oStmt), transition (stmt, oStmt) γ g) ∉
@@ -216,7 +225,7 @@ theorem oracleVerifier_knowledgeSoundnessWith_of_transition_failure_prob_le
   case h₁ =>
     exact hgamma (stmt, oStmt)
   case h₂ =>
-    intro γ hγ s0
+    intro _ γ hγ s0
     refine ProtocolSpec.probEvent_optionT_simulateQ_addLift_prefix_getChallenge_bind_le
       s0 impl _ ⟨2, rfl⟩ _ _ _ _ rfl (fun pre ↦ ?_)
     refine le_trans (probEvent_mono ?_) (spotcheck_round_game_bound k t
@@ -283,7 +292,7 @@ theorem oracleVerifier_knowledgeSoundnessWith_of_transition_failure_prob_le
           then some ((stmt, oStmt), some (transition (stmt, oStmt) c m),
             (((), nofun) : OutputStatement × ∀ i, OutputOracleStatement i), out.2)
           else none)).trans ?_
-      simp only [bind_assoc, map_eq_bind_pure_comp, Function.comp_def]
+      simp only [bind_assoc, map_eq_bind_pure_comp, Function.comp_def, pure_bind]
 
 /-! ## Direct bridge for the Definition 6.11 winning-set quantity
 
