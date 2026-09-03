@@ -10,8 +10,10 @@ Partly formalized, all of it free of \texttt{sorry}.
 specification (\texttt{ProtocolSpec.BCSTransform}) with the structural API for
 \texttt{renameMessage} that writing over a renamed spec requires, the admissibility
 obligation of Remark~\ref{rem:bcs_shortness} (\texttt{BCS.BatchingAdmissibility}), and
-the commit phase of the transform (\texttt{Prover.commitMessages}). Still to be written:
-the opening phase, the assembly of the two, and the security statements of
+the commit phase of the transform (\texttt{Prover.commitMessages} and
+\texttt{Verifier.commitMessages}), and the reduction-level assembly
+(\texttt{OracleReduction.BCSTransform}). Still to be written: a concrete batched
+opening reduction and the security statements of
 Section~\ref{sec:bcs_security}.
 
 \subsection{The transformation}\label{sec:bcs_transform}

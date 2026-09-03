@@ -198,4 +198,6 @@ BCS.BatchingAdmissibility.ofNormBound
 ProtocolSpec.renameMessage_message
 ProtocolSpec.renameMessage_challenge
 Prover.commitMessages
+Verifier.commitMessages
+OracleReduction.BCSTransform
 Prover.CommitState

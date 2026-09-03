@@ -105,14 +105,16 @@ import ArkLib.OracleReduction.Composition.Sequential.General
     the `dite` in `renameMessage` does not reduce for a variable index.
   - `BCS.BatchingAdmissibility`, the obligation the batched route carries.
   - `Prover.commitMessages`, the **commit phase**: it runs the underlying prover, commits to each
-    message, sends the commitment in its place, and retains the message and decommitment. Its
-    output splits public part from private part exactly as the opening phase needs.
+    message, sends the commitment in its place, and retains the message and decommitment.
+  - `Verifier.commitMessages`, which exposes the original input and the commitments received in
+    the transcript, and `OracleReduction.BCSTransform`, which appends a supplied opening reduction.
+    The intermediate statement/witness split is exactly what that opening reduction needs.
 
   Not yet here:
 
-  - The **opening phase** prover and verifier, i.e. the batched opening argument over `pSpecOpen`,
-    and the verifier side of the commit phase.
-  - `OracleReduction.BCSTransform` itself, assembling the two phases with `Reduction.append`.
+  - A concrete **opening phase** prover and verifier, i.e. the batched opening argument over
+    `pSpecOpen`. It is a parameter of `OracleReduction.BCSTransform` because its batching and
+    admissibility policy cannot be recovered from an arbitrary oracle reduction.
   - The security statements. Completeness must take a `BCS.BatchingAdmissibility` hypothesis; it is
     false without one for any norm-bounded scheme. Completeness can now rest on
     `Reduction.append_completeness`, plain soundness on `Verifier.append_soundness`, and
@@ -306,7 +308,7 @@ The bound lives in the type rather than in a separate invariant, so `output` can
 phase a *total* family with no runtime check: at `Fin.last n` every message index satisfies it. -/
 def CommitState (P : Prover oSpec StmtIn WitIn StmtOut WitOut pSpec)
     (CommitmentType Decommitment : pSpec.MessageIdx → Type) (k : Fin (n + 1)) : Type :=
-  P.PrvState k ×
+  P.PrvState k × StmtIn ×
     ((j : pSpec.MessageIdx) → j.1.val < k.val → Committed pSpec CommitmentType Decommitment j)
 
 /-- The commit phase of the BCS transform: run `P`, but commit to each message and send the
@@ -323,27 +325,27 @@ def commitMessages (P : Prover oSpec StmtIn WitIn StmtOut WitOut pSpec)
     (commit : (i : pSpec.MessageIdx) → pSpec.Message i →
       OracleComp oSpec (CommitmentType i × Decommitment i)) :
     Prover oSpec StmtIn WitIn
-      (StmtOut × ((i : pSpec.MessageIdx) → CommitmentType i))
-      (WitOut × ((i : pSpec.MessageIdx) → pSpec.Message i × Decommitment i))
+      (StmtIn × ((i : pSpec.MessageIdx) → CommitmentType i))
+      (StmtOut × WitOut × ((i : pSpec.MessageIdx) → pSpec.Message i × Decommitment i))
       (pSpec.renameMessage CommitmentType) where
   PrvState := P.CommitState CommitmentType Decommitment
-  input := fun x => (P.input x, fun _ h => absurd h (Nat.not_lt_zero _))
+  input := fun x => (P.input x, x.1, fun _ h => absurd h (Nat.not_lt_zero _))
   sendMessage := fun i st => do
     let (msg, st') ← P.sendMessage i st.1
     let (cm, dc) ← commit i msg
     let extend : (j : pSpec.MessageIdx) → j.1.val < i.1.val + 1 →
         Committed pSpec CommitmentType Decommitment j := fun j hj =>
-      if hlt : j.1.val < i.1.val then st.2 j hlt
+      if hlt : j.1.val < i.1.val then st.2.2 j hlt
       else
         have hji : j = i := Subtype.ext (Fin.ext (Nat.le_antisymm (by omega) (by omega)))
         hji ▸ (cm, msg, dc)
-    return (cast (renameMessage_message pSpec CommitmentType i).symm cm, (st', extend))
+    return (cast (renameMessage_message pSpec CommitmentType i).symm cm, (st', st.2.1, extend))
   receiveChallenge := fun i st => do
     let f ← P.receiveChallenge i st.1
     return fun chal =>
-      (f (cast (renameMessage_challenge pSpec CommitmentType i) chal),
+      (f (cast (renameMessage_challenge pSpec CommitmentType i) chal), st.2.1,
         fun j hj =>
-          st.2 j (by
+          st.2.2 j (by
             rcases Nat.lt_succ_iff_lt_or_eq.mp hj with h | h
             · exact h
             · exfalso
@@ -352,8 +354,9 @@ def commitMessages (P : Prover oSpec StmtIn WitIn StmtOut WitOut pSpec)
   output := fun st => do
     let (stmtOut, witOut) ← P.output st.1
     let committed : (j : pSpec.MessageIdx) → Committed pSpec CommitmentType Decommitment j :=
-      fun j => st.2 j (by simp only [Fin.val_last]; exact j.1.isLt)
-    return ((stmtOut, fun i => (committed i).1), (witOut, fun i => (committed i).2))
+      fun j => st.2.2 j (by simp only [Fin.val_last]; exact j.1.isLt)
+    return ((st.2.1, fun i => (committed i).1),
+      (stmtOut, witOut, fun i => (committed i).2))
 
 /-- At the last round every message index is in range. This is the fact `commitMessages.output`
 rests on to produce a *total* family of committed data with no runtime check; it is stated
@@ -373,7 +376,7 @@ theorem commitMessages_input_fst (x : StmtIn × WitIn) :
 /-- Nothing is committed before the first round. -/
 theorem commitMessages_input_snd (x : StmtIn × WitIn) (j : pSpec.MessageIdx)
     (h : j.1.val < (0 : Fin (n + 1)).val) :
-    ((P.commitMessages commit).input x).2 j h = absurd h (Nat.not_lt_zero _) := rfl
+    ((P.commitMessages commit).input x).2.2 j h = absurd h (Nat.not_lt_zero _) := rfl
 
 /-- The commit phase runs over a specification with the same directions as the original, so it is a
 prover for the first `n` rounds of `ProtocolSpec.BCSTransform` and not for some other protocol. -/
@@ -382,20 +385,63 @@ theorem commitMessages_dir :
 
 end Prover
 
+namespace Verifier
+
+open ProtocolSpec
+
+variable {n : ℕ} {pSpec : ProtocolSpec n} {ι : Type} {oSpec : OracleSpec ι}
+    {StmtIn : Type} {CommitmentType : pSpec.MessageIdx → Type}
+
+/-- The commit-phase verifier exposes the commitments it received, together with its unchanged
+input statement. Keeping the input is essential: the opening phase needs it to run the original
+oracle verifier after the committed messages have been authenticated. -/
+def commitMessages :
+    Verifier oSpec StmtIn
+      (StmtIn × ((i : pSpec.MessageIdx) → CommitmentType i))
+      (pSpec.renameMessage CommitmentType) where
+  verify := fun stmt transcript =>
+    pure (stmt, fun i =>
+      cast (ProtocolSpec.renameMessage_message pSpec CommitmentType i) (transcript.messages i))
+
+end Verifier
+
 namespace OracleReduction
 
 variable {pSpec : ProtocolSpec n} {ι : Type} {oSpec : OracleSpec ι}
     [Oₘ : ∀ i, OracleInterface (pSpec.Message i)]
 
 variable {nOpen : ℕ} {pSpecOpen : ProtocolSpec nOpen}
-    {CommitmentType : pSpec.MessageIdx → Type}
+    {CommitmentType Decommitment : pSpec.MessageIdx → Type}
 
 variable {StmtIn StmtOut WitIn WitOut : Type}
     {ιₛᵢ : Type} {OStmtIn : ιₛᵢ → Type} [Oₛᵢ : ∀ i, OracleInterface (OStmtIn i)]
-    {ιₛₒ : Type} {OStmtOut : ιₛₒ → Type}
+    {ιₛₒ : Type} {OStmtOut : ιₛₒ → Type} [Oₛₒ : ∀ i, OracleInterface (OStmtOut i)]
 
--- TODO: `BCSTransform`, sending an `OracleReduction` over `pSpec` to a `Reduction` over
--- `pSpec.BCSTransform CommitmentType pSpecOpen`. Its completeness statement must take a
--- `BCS.BatchingAdmissibility` hypothesis at the verifier's query count; see the module docstring.
+/-- Assemble the BCS commit phase with a supplied batched opening reduction.
+
+The intermediate public statement contains the original input and the commitments observed by the
+commit-phase verifier. The intermediate witness contains the original prover output, its witness,
+and every message/decommitment pair. This split gives the opening reduction exactly what it needs:
+the honest prover has the private openings, while its verifier has the original input and public
+commitments needed to authenticate the oracle answers and run the original oracle verifier.
+
+The opening reduction is an explicit parameter because batching policy, query order, and the
+commitment scheme's admissibility condition are genuine choices rather than structure recoverable
+from an `OracleReduction`. In particular, its completeness theorem must carry the relevant
+`BCS.BatchingAdmissibility` hypothesis. -/
+def BCSTransform
+    (reduction : OracleReduction oSpec StmtIn OStmtIn WitIn StmtOut OStmtOut WitOut pSpec)
+    (commit : (i : pSpec.MessageIdx) → pSpec.Message i →
+      OracleComp oSpec (CommitmentType i × Decommitment i))
+    (opening : Reduction oSpec
+      ((StmtIn × ((i : ιₛᵢ) → OStmtIn i)) ×
+        ((i : pSpec.MessageIdx) → CommitmentType i))
+      ((StmtOut × ((i : ιₛₒ) → OStmtOut i)) × WitOut ×
+        ((i : pSpec.MessageIdx) → pSpec.Message i × Decommitment i))
+      (StmtOut × ((i : ιₛₒ) → OStmtOut i)) WitOut pSpecOpen) :
+    Reduction oSpec (StmtIn × ((i : ιₛᵢ) → OStmtIn i)) WitIn
+      (StmtOut × ((i : ιₛₒ) → OStmtOut i)) WitOut
+      (pSpec.BCSTransform CommitmentType pSpecOpen) :=
+  (Reduction.mk (reduction.prover.commitMessages commit) Verifier.commitMessages).append opening
 
 end OracleReduction
