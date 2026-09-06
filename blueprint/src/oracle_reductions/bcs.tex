@@ -12,8 +12,11 @@ specification (\texttt{ProtocolSpec.BCSTransform}) with the structural API for
 obligation of Remark~\ref{rem:bcs_shortness} (\texttt{BCS.BatchingAdmissibility}), and
 the commit phase of the transform (\texttt{Prover.commitMessages} and
 \texttt{Verifier.commitMessages}), and the reduction-level assembly
-(\texttt{OracleReduction.BCSTransform}). Still to be written: a concrete batched
-opening reduction and the security statements of
+(\texttt{OracleReduction.BCSTransform}). The commit phase hands the opening phase the
+input statement, every verifier challenge, and the commitments: a non-adaptive verifier's
+query list is a function of the statement and the challenges, and sequential composition
+gives the second phase nothing else of the first phase's transcript. Still to be written:
+a concrete batched opening reduction and the security statements of
 Section~\ref{sec:bcs_security}.
 
 \subsection{The transformation}\label{sec:bcs_transform}
@@ -39,7 +42,8 @@ Section~\ref{sec:bcs_security}.
     $\mathsf{BCSTransform}$ sends an oracle reduction $R$ to the reduction that
     \begin{enumerate}
         \item runs $R$'s prover, sending a commitment in place of each oracle message ---
-            the commit phase, which retains each message and its decommitment for step 3;
+            the commit phase, which retains each message and its decommitment for step 3, and
+            each challenge for step 2;
             \lean{Prover.commitMessages}
         \item runs $R$'s oracle verifier to obtain its query list;
         \item runs an opening argument for each query;
