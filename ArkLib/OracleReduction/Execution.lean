@@ -739,44 +739,62 @@ variable {ι : Type} {oSpec : OracleSpec ι}
     {StmtIn WitIn StmtOut WitOut : Type}
     {pSpec : ProtocolSpec 2}
 
--- /-- Simplification of the prover's execution in a single-round, two-message protocol where the
---   prover speaks first -/
--- theorem Prover.run_of_isSingleRound [IsSingleRound pSpec] (stmt : StmtIn) (wit : WitIn)
---     (prover : Prover pSpec oSpec StmtIn WitIn StmtOut WitOut) :
---       prover.run stmt wit = (do
---         let state ← liftComp (prover.load stmt wit)
---         let ⟨⟨msg, state⟩, queryLog⟩ ← liftComp
---           (simulate loggingOracle ∅ (prover.sendMessage default state emptyTranscript))
---         let challenge ← query (Sum.inr default) ()
---         let state ← liftComp (prover.receiveChallenge default state transcript challenge)
---         let transcript := Transcript.mk2 msg challenge
---         let witOut := prover.output state
---         return (transcript, queryLog, witOut)) := by
---   simp [Prover.run, Prover.runToRound, Fin.reduceFinMk, Fin.val_two,
---     Fin.val_zero, Fin.coe_castSucc, Fin.val_succ, dir_apply, bind_pure_comp, getType_apply,
---     Fin.induction_two, Fin.val_one, pure_bind, map_bind, liftComp]
---   split <;> rename_i hDir0
---   · exfalso; simp only [prover_first, reduceCtorEq] at hDir0
---   split <;> rename_i hDir1
---   swap
---   · exfalso; simp only [verifier_last_of_two, reduceCtorEq] at hDir1
---   simp only [Functor.map_map, bind_map_left, default]
---   congr; funext x; congr; funext y;
---   simp only [Fin.isValue, map_bind, Functor.map_map, dir_apply, Fin.succ_one_eq_two,
---     Fin.succ_zero_eq_one, queryBind_inj', true_and, exists_const]
---   funext chal; simp [OracleSpec.append] at chal
---   congr; funext state; congr
---   rw [← Transcript.mk2_eq_toFull_snoc_snoc _ _]
+/-- Simplification of the prover's execution in a single-round protocol: the prover speaks
+first, the verifier's challenge comes last, and the transcript is `FullTranscript.mk2`.
 
--- theorem Reduction.run_of_isSingleRound [IsSingleRound pSpec]
---     (reduction : Reduction pSpec oSpec StmtIn WitIn StmtOut WitOut PrvState)
---     (stmt : StmtIn) (wit : WitIn) :
---       reduction.run stmt wit = do
---         let state := reduction.prover.load stmt wit
---         let ⟨⟨msg, state⟩, queryLog⟩ ← liftComp (simulate loggingOracle ∅
---           (reduction.prover.sendMessage default state))
---         let challenge := reduction.prover.receiveChallenge default state
---         let stmtOut ← reduction.verifier.verify stmt transcript
---         return (transcript, queryLog, stmtOut, reduction.prover.output state) := by sorry
+This is the run lemma a batched opening argument stands on: the prover sends its openings, the
+verifier then draws the batching challenge, and nothing else happens. Stated with `liftComp` on
+the prover's oracle computations, as `Prover.run_of_prover_first` is. -/
+theorem Prover.run_of_isSingleRound [IsSingleRound pSpec] (stmt : StmtIn) (wit : WitIn)
+    (prover : Prover oSpec StmtIn WitIn StmtOut WitOut pSpec) :
+      prover.run stmt wit = (do
+        let state := prover.input (stmt, wit)
+        let ⟨msg, state⟩ ← liftComp (prover.sendMessage ⟨0, by simp⟩ state) _
+        let update ← liftComp (prover.receiveChallenge ⟨1, by simp⟩ state) _
+        let challenge ← liftComp (pSpec.getChallenge ⟨1, by simp⟩) _
+        let ctxOut ← prover.output (update challenge)
+        return (FullTranscript.mk2 msg challenge, ctxOut)) := by
+  simp only [Prover.run, Prover.runToRound_last]
+  rw [Prover.runToRound_mk_succ _ 1 (by omega), Prover.runToRound_mk_one _ (by omega),
+    Prover.processRound_of_dir_eq_P_to_V ⟨0, by omega⟩ (prover_first pSpec),
+    Prover.processRound_of_dir_eq_V_to_P ⟨1, by omega⟩ (verifier_last_of_two pSpec)]
+  simp only [FullTranscript.mk2_eq_snoc_snoc]
+  -- `OracleComp` is a free monad: `simp` does not see its `>>=`, so the monad laws are applied
+  -- by `Eq.trans`, which unifies up to defeq.
+  have ba : ∀ {α β γ : Type} (x : OracleComp (oSpec + [pSpec.Challenge]ₒ) α)
+      (f : α → OracleComp (oSpec + [pSpec.Challenge]ₒ) β)
+      (g : β → OracleComp (oSpec + [pSpec.Challenge]ₒ) γ),
+      x >>= f >>= g = x >>= fun a => f a >>= g := fun x f g => bind_assoc x f g
+  have pb : ∀ {α β : Type} (a : α) (f : α → OracleComp (oSpec + [pSpec.Challenge]ₒ) β),
+      pure a >>= f = f a := fun a f => pure_bind a f
+  refine Eq.trans (ba _ _ _) ?_
+  refine Eq.trans (ba _ _ _) ?_
+  refine Eq.trans (pb _ _) ?_
+  refine Eq.trans (ba _ _ _) ?_
+  refine bind_congr fun s => ?_
+  refine Eq.trans (pb _ _) ?_
+  refine Eq.trans (ba _ _ _) ?_
+  refine bind_congr fun update => ?_
+  refine Eq.trans (ba _ _ _) ?_
+  refine bind_congr fun challenge => ?_
+  exact pb _ _
+
+/-- The reduction-level form of `Prover.run_of_isSingleRound`: the verifier reads the two-message
+transcript after the prover's output. -/
+theorem Reduction.run_of_isSingleRound [IsSingleRound pSpec] (stmt : StmtIn) (wit : WitIn)
+    (reduction : Reduction oSpec StmtIn WitIn StmtOut WitOut pSpec) :
+      reduction.run stmt wit = (do
+        let state := reduction.prover.input (stmt, wit)
+        let ⟨msg, state⟩ ← reduction.prover.sendMessage ⟨0, by simp⟩ state
+        let update ← reduction.prover.receiveChallenge ⟨1, by simp⟩ state
+        let challenge ← pSpec.getChallenge ⟨1, by simp⟩
+        let ctxOut ← reduction.prover.output (update challenge)
+        let transcript : pSpec.FullTranscript := FullTranscript.mk2 msg challenge
+        let stmtOut ← (reduction.verifier.verify stmt transcript).run
+        return (⟨transcript, ctxOut⟩, ← stmtOut.getM)) := by
+  simp only [Reduction.run, Verifier.run]
+  rw [Prover.run_of_isSingleRound]
+  simp only [liftComp_eq_liftM, bind_assoc, pure_bind, monadLift_bind, monadLift_pure,
+    monadLift_liftM_OptionT]
 
 end Classes
