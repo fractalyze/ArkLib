@@ -832,6 +832,37 @@ def cEqualityPolynomial (τ : Fin m₀ → F) : CMvPolynomial m₀ F :=
   cMultilinearExtension m₀ fun x =>
     ∏ i : Fin m₀, if x i = 1 then τ i else 1 - τ i
 
+/-- A sparse multilinear extension evaluates as CompPoly's recursive `evalMle` on its dense
+table, the table laid out by `finFunctionFinEquiv` as in `hZero` and `cWTableMle`. -/
+theorem cMultilinearExtension_eval_eq_evalMle (evals : (Fin m₀ → Fin 2) → F)
+    (a : Fin m₀ → F) :
+    (cMultilinearExtension m₀ evals).eval a =
+      CMlPolynomialEval.evalMle
+        (Vector.ofFn fun i => evals (finFunctionFinEquiv.symm i)) (Vector.ofFn a) := by
+  rw [CMlPolynomialEval.eval_mle_eq_eval, CMlPolynomialEval.eval_eq_MvPolynomial_MLE,
+    MvPolynomial.MLE_eval]
+  simp only [cMultilinearExtension, cBooleanEqPolynomial, CMvPolynomial.eval_sum,
+    CMvPolynomial.eval_mul, CMvPolynomial.eval_C, CMvPolynomial.eval_prod, MvPolynomial.eqTilde,
+    MvPolynomial.eqPolynomial, MvPolynomial.eval_prod]
+  refine Finset.sum_congr rfl fun x _ => ?_
+  rw [mul_comm]
+  congr 1
+  refine Finset.prod_congr rfl fun i _ => ?_
+  generalize x i = b
+  fin_cases b <;> simp [MvPolynomial.singleEqPolynomial]
+
+/-- `eq̃(τ, a)` in product form: the sum over the cube that `cEqualityPolynomial` builds factors
+coordinate-wise, so evaluating it costs `m₀` products instead of `2 ^ m₀` terms. -/
+theorem cEqualityPolynomial_eval (τ a : Fin m₀ → F) :
+    (cEqualityPolynomial m₀ τ).eval a = ∏ i, (τ i * a i + (1 - τ i) * (1 - a i)) := by
+  simp only [cEqualityPolynomial, cMultilinearExtension, cBooleanEqPolynomial,
+    CMvPolynomial.eval_sum, CMvPolynomial.eval_mul, CMvPolynomial.eval_C,
+    CMvPolynomial.eval_prod, ← Finset.prod_mul_distrib]
+  rw [← Fintype.prod_sum (fun i b => (if b = 1 then τ i else 1 - τ i) *
+    CMvPolynomial.eval a (if b = 1 then CMvPolynomial.X i else 1 - CMvPolynomial.X i))]
+  refine Finset.prod_congr rfl fun i _ => ?_
+  simp [Fin.sum_univ_two, add_comm]
+
 /-- Apply Hachi's symmetric range polynomial to a computable polynomial. -/
 def cRangeProduct (b : ℕ) (p : CMvPolynomial m₀ F) : CMvPolynomial m₀ F :=
   p * ∏ j ∈ Finset.Icc 1 (b - 1),
