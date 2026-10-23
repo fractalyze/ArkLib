@@ -93,6 +93,9 @@ def roundDegZero (b : ℕ) : ℕ := 2 * b
 /-- Per-round univariate degree of the linear sumcheck summand `F_{α,τ₁}`, namely `2`. -/
 def roundDegAlpha : ℕ := 2
 
+/-- The linear summand's per-round degree bound is `2`. -/
+theorem roundDegAlpha_eq : roundDegAlpha = 2 := rfl
+
 /-! ## The range factor and the table -/
 
 /-- Hachi Eq. (23)'s per-entry range factor `P_b(v) = v·∏_{j=1}^{b-1} (v - j)·(v + j)`, the
@@ -339,6 +342,14 @@ step (`Sumcheck/FinalEval.lean`). Computed on the computable representation. -/
 def wTableMleEval (φF : ZMod q →+* F) (b : ℕ) (w : LiftedWitness Φ μ n)
     (a : Fin m₀ → F) : F :=
   CMlPolynomialEval.eval (cWTableMle Φ m₀ φF b w) (Vector.ofFn a)
+
+/-- `wTableMleEval` is the computable table's `CMlPolynomialEval.eval` at the point. -/
+theorem wTableMleEval_eq_eval {q : ℕ} [Fact (Nat.Prime q)] [BEq (ZMod q)] [LawfulBEq (ZMod q)]
+    (Φ : CyclotomicModulus (ZMod q)) {n μ : ℕ} {F : Type} [Field F]
+    (φF : ZMod q →+* F) (b : ℕ) (w : LiftedWitness Φ μ n)
+    (a : Fin m₀ → F) :
+    wTableMleEval Φ m₀ φF b w a =
+      CMlPolynomialEval.eval (cWTableMle Φ m₀ φF b w) (Vector.ofFn a) := rfl
 
 omit [NeZero q] [IsCyclotomic Φ] [BEq F] [LawfulBEq F] in
 /-- `wTableMleEval` agrees with evaluating Mathlib's multilinear extension of `w̃`. -/
@@ -863,6 +874,12 @@ theorem cEqualityPolynomial_eval (τ a : Fin m₀ → F) :
   refine Finset.prod_congr rfl fun i _ => ?_
   simp [Fin.sum_univ_two, add_comm]
 
+/-- The Lagrange-basis table evaluates as `eq̃` in product form. -/
+theorem eval_lagrangeBasis {R : Type} [CommRing R] {k : ℕ} (w x : Vector R k) :
+    CMlPolynomialEval.eval (CMlPolynomialEval.lagrangeBasis w) x =
+      ∏ i : Fin k, (w[i] * x[i] + (1 - w[i]) * (1 - x[i])) :=
+  CMlPolynomialEval.eqTilde_eq_prod w x
+
 /-- Apply Hachi's symmetric range polynomial to a computable polynomial. -/
 def cRangeProduct (b : ℕ) (p : CMvPolynomial m₀ F) : CMvPolynomial m₀ F :=
   p * ∏ j ∈ Finset.Icc 1 (b - 1),
@@ -920,6 +937,23 @@ def zcTargetAlpha (φF : ZMod q →+* F) (s : RlinStatement Φ n μ) (α : F)
 computable representation — this is the fold the prover actually runs. -/
 def hypercubeSum (H : CMvPolynomial m₀ F) (i : ℕ) (cs : Fin i → F) : F :=
   ∑ x : Fin (m₀ - i) → Fin 2, H.eval (hypercubePoint m₀ i cs x)
+
+/-- `hypercubeSum` sums `H` over the Boolean completions of the prefix `cs`. -/
+theorem hypercubeSum_eq_sum {F : Type} [Field F] [BEq F] [LawfulBEq F] (H : CMvPolynomial m₀ F)
+    (i : ℕ) (cs : Fin i → F) :
+    hypercubeSum m₀ H i cs = ∑ x : Fin (m₀ - i) → Fin 2, H.eval (hypercubePoint m₀ i cs x) := rfl
+
+/-- Below `i`, `hypercubePoint` reads the prefix. -/
+theorem hypercubePoint_apply_lt {F : Type} [Field F] {i : ℕ} (cs : Fin i → F)
+    (x : Fin (m₀ - i) → Fin 2) (j : Fin m₀) (h : (j : ℕ) < i) :
+    hypercubePoint m₀ i cs x j = cs ⟨j, h⟩ :=
+  dite_eq_left h
+
+/-- From `i` on, `hypercubePoint` reads the Boolean suffix. -/
+theorem hypercubePoint_apply_ge {F : Type} [Field F] {i : ℕ} (cs : Fin i → F)
+    (x : Fin (m₀ - i) → Fin 2) (j : Fin m₀) (h : i ≤ (j : ℕ)) :
+    hypercubePoint m₀ i cs x j = ((x ⟨j - i, by omega⟩ : ℕ) : F) :=
+  dite_eq_right (by omega)
 
 omit [BEq F] [LawfulBEq F] in
 /-- **Saturation of the partial sum.** Once the challenge prefix covers every cube coordinate

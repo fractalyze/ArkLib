@@ -451,6 +451,20 @@ def relNestedZeroCheck (K : LiftCom (LiftedWitness Φ μ n) (liftShort Φ bound 
         (hAlpha Φ m₁ φF b p.1.rlin p.1.α p.2) (Vector.ofFn p.1.τα) = 0 ∧
     bound ≤ p.1.rlin.bound}
 
+/-- Membership in `relNestedZeroCheck`, conjunct by conjunct. -/
+theorem mem_relNestedZeroCheck {q : ℕ} [Fact (Nat.Prime q)] [BEq (ZMod q)] [LawfulBEq (ZMod q)]
+    (Φ : CyclotomicModulus (ZMod q)) {n μ : ℕ} {F : Type} [Field F]
+    (K : LiftCom (LiftedWitness Φ μ n) (liftShort Φ bound bDig))
+    (φF : ZMod q →+* F) (b : ℕ)
+    (p : NestedZeroCheckStatement Φ K.TCom F n μ m₀ m₁ × LiftedWitness Φ μ n) :
+    p ∈ relNestedZeroCheck Φ m₀ m₁ bound bDig K φF b ↔
+      K.com p.2 = p.1.t ∧
+      liftShort Φ bound bDig p.2 ∧
+      CMlPolynomialEval.eval (hZero Φ m₀ φF b p.2) (Vector.ofFn p.1.τ₀) = 0 ∧
+      CMlPolynomialEval.eval
+          (hAlpha Φ m₁ φF b p.1.rlin p.1.α p.2) (Vector.ofFn p.1.τα) = 0 ∧
+      bound ≤ p.1.rlin.bound := Iff.rfl
+
 /-- The canonical all-left leaf: the extractor's output branch, and the comparison base of the
 collision case. -/
 def nestedLeftPath {r : ℕ} :
