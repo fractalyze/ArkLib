@@ -251,6 +251,13 @@ def honestComputeY {TCom : Type} (φF : ZMod q →+* F)
     (stmt : NestedRoundStatement Φ TCom F n μ m₀ m₁ m₀) (w : LiftedWitness Φ μ n) : F :=
   wTableMleEval Φ m₀ φF b w stmt.challenges
 
+/-- The honest `y′` is `wTableMleEval` at the statement's challenges. -/
+theorem honestComputeY_eq {q : ℕ} [Fact (Nat.Prime q)] [BEq (ZMod q)] [LawfulBEq (ZMod q)]
+    (Φ : CyclotomicModulus (ZMod q)) {n μ : ℕ} {F : Type} [Field F] {TCom : Type}
+    (φF : ZMod q →+* F)
+    (stmt : NestedRoundStatement Φ TCom F n μ m₀ m₁ m₀) (w : LiftedWitness Φ μ n) :
+    honestComputeY Φ m₀ m₁ b φF stmt w = wTableMleEval Φ m₀ φF b w stmt.challenges := rfl
+
 /-- **The final-evaluation step as a protocol object**: the honest prover at `honestComputeY`
 paired with the guarded verifier. The verifier field is `finalEvalPackage`'s
 (`finalEvalReduction_verifier`). -/

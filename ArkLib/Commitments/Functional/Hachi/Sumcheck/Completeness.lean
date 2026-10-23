@@ -170,6 +170,15 @@ def roundReduction {TCom : Type} (hb : 0 < b) (φF : ZMod q →+* F) (i : ℕ) (
   prover := roundProver Φ (M + 1) m₁ b i (honestComputeG Φ m₁ b hb φF i hi)
   verifier := roundVerifier Φ (M + 1) m₁ b i
 
+/-- The round's prover is `roundProver` at the honest message `honestComputeG`. -/
+theorem roundReduction_prover {q : ℕ} [Fact (Nat.Prime q)] [BEq (ZMod q)]
+    [LawfulBEq (ZMod q)] (Φ : CyclotomicModulus (ZMod q)) {n μ M : ℕ} {F : Type} [Field F]
+    [BEq F] [LawfulBEq F] {TCom : Type} (hb : 0 < b) (φF : ZMod q →+* F)
+    (i : ℕ) (hi : i < M + 1) :
+    (roundReduction (oSpec := oSpec) (n := n) (μ := μ) (TCom := TCom) Φ m₁ b hb φF i
+      hi).prover =
+      roundProver Φ (M + 1) m₁ b i (honestComputeG Φ m₁ b hb φF i hi) := rfl
+
 omit [NeZero q] [IsCyclotomic Φ] [DecidableEq F] [SampleableType F] in
 /-- The round's protocol object and its soundness certificate speak about the same verifier.
 Holds by `rfl`. -/
